@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-slate-950 text-slate-200 antialiased;
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { @apply bg-slate-700 rounded; }
+::-webkit-scrollbar-track { @apply bg-slate-900; }
+
+.card {
+  @apply bg-slate-900/70 border border-slate-800 rounded-xl p-5 shadow-lg;
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; color: black !important; }
+  .card { border: none !important; box-shadow: none !important; background: white !important; }
+}

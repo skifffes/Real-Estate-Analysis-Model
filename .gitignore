@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 环境与密钥
+.env
+*.log
+
+# 生成产物
+**/kb_store/
+backend/uploads/
+backend/reports/
+*.log
+
+# CodeBuddy IDE 数据
+.codebuddy/
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+
+# 版权论文（不入公开仓库）
+*.pdf
