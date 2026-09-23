@@ -25,7 +25,7 @@ def _default_dashboard() -> dict:
     macro = json.loads((DATA_DIR / "macro_history.json").read_text(encoding="utf-8"))
     return {
         "risk_score": 0, "risk_level": "-",
-        "industry_impact": [], "industry_scores": [],
+        "industry_impact": [], "industry_scores": [], "key_indicators": [],
         "supply_chain": io.supply_chain_graph(),
         "historical_comparison": macro,
         "updated_at": None,
@@ -43,8 +43,10 @@ def _refresh_dashboard(report: dict):
         {"name": r["industry"], "value": r["impact_pct"]} for r in report.get("affected_industries", [])
     ]
     d["industry_scores"] = report.get("industry_scores", [])
+    d["key_indicators"] = report.get("key_indicators", [])
     impact = report.get("impact")
     d["supply_chain"] = io.supply_chain_graph(impact)
+    d["similar_cases"] = report.get("similar_cases", [])
     d["updated_at"] = report.get("created_at")
 
 

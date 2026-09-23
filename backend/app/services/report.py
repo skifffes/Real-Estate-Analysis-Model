@@ -2,15 +2,23 @@
 from ..config import REPORTS_DIR
 
 
+def _fmt(v, fmt_str="{:+,.0f}"):
+    return fmt_str.format(v) if isinstance(v, (int, float)) else "-"
+
+
 def _industries_md(rows: list[dict]) -> str:
     if not rows:
         return "无量化测算结果（问题未涉及冲击情景）。"
     lines = ["| 行业 | 产出变动% | 产出变动(亿元) | 直接效应 | 间接效应 | 风险评分 |",
              "|---|---|---|---|---|---|"]
     for r in rows:
-        lines.append(f"| {r['industry']} | {r['impact_pct']:+.2f}% | {r['delta_output_yi']:+,.0f} | "
-                     f"{r.get('direct_effect_yi', 0):+,.0f} | {r.get('indirect_effect_yi', 0):+,.0f} | "
-                     f"{r.get('risk_score', '-')} |")
+        lines.append(
+            f"| {r['industry']} | {r['impact_pct']:+.2f}% | "
+            f"{_fmt(r.get('delta_output_yi'))} | "
+            f"{_fmt(r.get('direct_effect_yi'))} | "
+            f"{_fmt(r.get('indirect_effect_yi'))} | "
+            f"{r.get('risk_score', '-')} |"
+        )
     return "\n".join(lines)
 
 

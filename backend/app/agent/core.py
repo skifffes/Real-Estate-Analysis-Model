@@ -68,6 +68,8 @@ class RiskAgent:
             messages.append({"role": "user", "content": f"用户已上传数据文件，file_id 列表：{files}。如与问题相关请分析。"})
 
         trace = []
+        last_impact = None   # 最后一次产业链测算的完整结果
+        last_cases = []      # 最后一次案例检索结果
         for _ in range(8):  # 最多 8 轮工具调用
             resp = self.client.chat.completions.create(
                 model=LLM_MODEL, messages=messages,
@@ -75,18 +77,45 @@ class RiskAgent:
             )
             msg = resp.choices[0].message
             if not msg.tool_calls:
-                return self._parse_report(msg.content or ""), trace
+                report = self._parse_report(msg.content or "")
+                return self._enrich_report(report, last_impact, last_cases), trace
             messages.append(msg)
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments or "{}")
                 result = execute_tool(tc.function.name, args, ctx)
                 trace.append({"tool": tc.function.name, "args": args,
                               "result_preview": json.dumps(result, ensure_ascii=False)[:200]})
+                if tc.function.name == "analyze_industry_chain_impact":
+                    last_impact = result
+                elif tc.function.name == "retrieve_similar_cases":
+                    last_cases = result.get("cases", [])
                 messages.append({
                     "role": "tool", "tool_call_id": tc.id,
                     "content": json.dumps(result, ensure_ascii=False)[:6000],
                 })
         return self._rule_run(question, ctx)  # 超轮次兜底
+
+    @staticmethod
+    def _enrich_report(report: dict, impact: dict | None, cases: list | None = None) -> dict:
+        """把工具计算的完整量化数据合并回 LLM 输出的报告（LLM 只输出部分字段）"""
+        if not isinstance(report, dict):
+            return report
+        if impact:
+            report.setdefault("impact", impact)
+            matrix = {r["industry"]: r for r in impact.get("impact_matrix", [])}
+            for row in report.get("affected_industries", []):
+                m = matrix.get(row.get("industry"))
+                if m:
+                    for k in ("delta_output_yi", "direct_effect_yi", "indirect_effect_yi", "debt_ratio"):
+                        if k not in row:
+                            row[k] = m[k]
+        if cases:
+            report.setdefault("similar_cases", [
+                {"title": c["title"], "year": c.get("year"),
+                 "peak_impact": c.get("peak_impact"), "lessons": c.get("lessons")}
+                for c in cases
+            ])
+        return report
 
     @staticmethod
     def _parse_report(content: str) -> dict:
@@ -129,7 +158,7 @@ class RiskAgent:
         agg = risk_model.aggregate_risk(industry_scores)
 
         # 4. 历史案例
-        similar = execute_tool("retrieve_similar_cases", {"event": q, "top_k": 2})
+        similar = execute_tool("retrieve_similar_cases", {"event": q, "top_k": 3})
         trace.append({"tool": "retrieve_similar_cases", "args": {"event": q}, "result_preview": "2 条案例"})
 
         # 5. 上传数据（如有）

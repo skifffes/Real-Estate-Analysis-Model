@@ -20,7 +20,8 @@ def _keywords(text: str) -> set:
 
 
 def retrieve_similar_cases(event: str, top_k: int = 2) -> list[dict]:
-    """基于事件关键词（bigram）的案例相似度检索"""
+    """基于事件关键词（bigram）的案例相似度检索。
+    仅返回有匹配分的案例，没有对应案例时返回空列表（不硬凑）。"""
     kws = _keywords(event)
     scored = []
     for c in CASES:
@@ -30,4 +31,4 @@ def retrieve_similar_cases(event: str, top_k: int = 2) -> list[dict]:
         score = 2.0 * len(kws & core) + 1.0 * len(kws & _keywords(text))
         scored.append((score, c))
     scored.sort(key=lambda x: -x[0])
-    return [c for s, c in scored[:top_k] if s > 0] or CASES[:top_k]
+    return [c for s, c in scored[:top_k] if s > 0]
