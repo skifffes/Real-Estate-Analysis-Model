@@ -27,7 +27,7 @@ ok('chat 结构化报告')
 print('== 2. dashboard ==')
 d = json.load(urllib.request.urlopen(BASE + '/api/dashboard', timeout=10))
 assert d['risk_score'] == r['risk_score'], 'dashboard 未同步 chat 结果'
-assert len(d['supply_chain']['nodes']) == 14, '产业链图节点数异常'
+assert len(d['supply_chain']['nodes']) == 13, '产业链图节点数异常'  # 真实北京表聚合为13部门
 assert len(d['historical_comparison']['years']) == 10, '历史数据异常'
 print(f"  score={d['risk_score']} 行业={len(d['industry_impact'])} 节点={len(d['supply_chain']['nodes'])} 连线={len(d['supply_chain']['links'])}")
 ok('dashboard 四模块数据完整')

@@ -148,7 +148,13 @@ body {
 @media print {
   .no-print { display: none !important; }
   body { background: white !important; color: black !important; }
-  .card { border: none !important; box-shadow: none !important; background: white !important; }
+  /* 关键：解除滚动容器限制，否则 window.print 只输出可视区域（只出一页） */
+  html, body, #root { height: auto !important; overflow: visible !important; }
+  main, main * { overflow: visible !important; max-height: none !important; }
+  .card { border: none !important; box-shadow: none !important; background: white !important; page-break-inside: auto; }
   .report-body h1, .report-body h2, .report-body h3, .report-body strong { color: #111 !important; }
   .report-body blockquote { background: #f1f5f9 !important; color: #333 !important; }
+  /* 表格允许跨页断行 */
+  .report-body table { page-break-inside: auto; }
+  .report-body tr { page-break-inside: avoid; }
 }

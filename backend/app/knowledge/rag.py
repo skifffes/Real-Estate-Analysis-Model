@@ -118,12 +118,16 @@ def build_knowledge_base() -> dict:
                 client.delete_collection("real_estate_kb")
                 col = client.get_or_create_collection(
                     "real_estate_kb", metadata={"hnsw:space": "cosine"}, embedding_function=ef)
-            col.add(
-                ids=[c["id"] for c in chunks],
-                documents=[c["text"] for c in chunks],
-                metadatas=[{"source": c["source"], "category": c["category"],
-                            "embed": _EMBED_NAME} for c in chunks],
-            )
+            # 分批插入（大批量一次性 add 会触发 Chroma InternalError）
+            B = 500
+            for i in range(0, len(chunks), B):
+                batch = chunks[i:i + B]
+                col.add(
+                    ids=[c["id"] for c in batch],
+                    documents=[c["text"] for c in batch],
+                    metadatas=[{"source": c["source"], "category": c["category"],
+                                "embed": _EMBED_NAME} for c in batch],
+                )
         _chroma_col = col
         status["vector_db"] = f"chroma ({col.count()} vectors, hybrid: {_EMBED_NAME} + bigram)"
     except Exception as e:  # 无 chroma → 降级

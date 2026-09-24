@@ -68,12 +68,27 @@ export default function Reports() {
 
 // 前端直接渲染 Markdown（与后端生成的 backend/reports/{id}.md 同源同构）
 function _md(report) {
-  const rows = (report.affected_industries || []).map(r =>
-    `| ${r.industry} | ${r.impact_pct}% | ${r.delta_output_yi} | ${r.risk_score ?? '-'} |`).join('\n')
-  const scores = (report.industry_scores || []).map(s => `- **${s.industry}**：${s.risk_score}（${s.risk_level}）`).join('\n')
+  // 安全格式化：缺失字段给定性描述而非 undefined
+  const num = v => (typeof v === 'number' ? v.toLocaleString('zh-CN', { maximumFractionDigits: 1 }) : null)
+  const pct = v => (typeof v === 'number' ? v.toFixed(2) : null)
+  // 冲击方向定性描述（无亿元数据时用）
+  const degree = p => {
+    if (typeof p !== 'number') return '待测算'
+    const a = Math.abs(p)
+    if (a >= 10) return '重度冲击'
+    if (a >= 5) return '显著冲击'
+    if (a >= 2) return '中度冲击'
+    return '轻度冲击'
+  }
+  const rows = (report.affected_industries || []).map(r => {
+    const yi = num(r.delta_output_yi)
+    const p = pct(r.impact_pct)
+    return `| ${r.industry} | ${p !== null ? p + '%' : '—'} | ${yi !== null ? yi : degree(r.impact_pct)} | ${r.risk_score ?? '—'} |`
+  }).join('\n')
+  const scores = (report.industry_scores || []).map(s => `- **${s.industry}**：${s.risk_score ?? '—'}（${s.risk_level ?? '—'}）`).join('\n')
   const steps = (report.transmission_path || []).map((t, i) => `${i + 1}. ${t}`).join('\n')
   const basis = (report.data_basis || []).map(d => `- ${d}`).join('\n')
-  const cases = (report.similar_cases || []).map(c => `- **${c.title}**：${c.peak_impact}`).join('\n')
+  const cases = (report.similar_cases || []).map(c => `- **${c.title}**：${c.peak_impact ?? '详见历史案例库'}`).join('\n')
   const kpis = (report.key_indicators || []).map(k => `- ${k}`).join('\n')
   return `# 房地产产业链风险分析报告
 

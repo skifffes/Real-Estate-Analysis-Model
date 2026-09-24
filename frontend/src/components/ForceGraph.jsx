@@ -33,9 +33,15 @@ export default function ForceGraph({ nodes, links }) {
       animationDuration: 600,
       animationEasing: 'cubicOut',
       tooltip: {
-        formatter: p => p.dataType === 'node'
-          ? `${p.name} 产出变动: ${p.value}%`
-          : `${p.source} → ${p.target} 消耗系数: ${p.value}`,
+        // 统一从 p.data 读原始数据（ECharts 5 边参数的 p.source/p.value 不稳定，会出现 undefined）
+        formatter: p => {
+          const d = p.data || {}
+          if (p.dataType === 'node') {
+            return `${d.name ?? p.name} 产出变动: ${d.value ?? 0}%`
+          }
+          const w = typeof d.value === 'number' ? d.value : 0
+          return `${d.source ?? '?'} → ${d.target ?? '?'} 直接消耗系数: ${w}`
+        },
       },
       legend: {
         data: ['冲击源（房地产/建筑）', '产业链部门'],

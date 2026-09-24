@@ -6,18 +6,38 @@ def _fmt(v, fmt_str="{:+,.0f}"):
     return fmt_str.format(v) if isinstance(v, (int, float)) else "-"
 
 
+def _degree(p) -> str:
+    """产出变动幅度 → 定性冲击描述（无精确测算时使用）"""
+    if not isinstance(p, (int, float)):
+        return "待测算"
+    a = abs(p)
+    if a >= 10:
+        return "重度冲击"
+    if a >= 5:
+        return "显著冲击"
+    if a >= 2:
+        return "中度冲击"
+    return "轻度冲击"
+
+
 def _industries_md(rows: list[dict]) -> str:
     if not rows:
         return "无量化测算结果（问题未涉及冲击情景）。"
-    lines = ["| 行业 | 产出变动% | 产出变动(亿元) | 直接效应 | 间接效应 | 风险评分 |",
-             "|---|---|---|---|---|---|"]
+    lines = ["| 行业 | 产出变动% | 产出变动(亿元) | 直接效应 | 间接效应 | 冲击程度 | 风险评分 |",
+             "|---|---|---|---|---|---|---|"]
     for r in rows:
+        pct_v = r.get("impact_pct")
+        pct_s = f"{pct_v:+.2f}%" if isinstance(pct_v, (int, float)) else "—"
+        delta = _fmt(r.get("delta_output_yi"))
+        if delta == "-" and pct_s != "—":  # 无亿元数据但有比例 → 给定性描述
+            delta = _degree(pct_v)
         lines.append(
-            f"| {r['industry']} | {r['impact_pct']:+.2f}% | "
-            f"{_fmt(r.get('delta_output_yi'))} | "
+            f"| {r.get('industry', '—')} | {pct_s} | "
+            f"{delta} | "
             f"{_fmt(r.get('direct_effect_yi'))} | "
             f"{_fmt(r.get('indirect_effect_yi'))} | "
-            f"{r.get('risk_score', '-')} |"
+            f"{_degree(pct_v)} | "
+            f"{r.get('risk_score', '—')} |"
         )
     return "\n".join(lines)
 
@@ -33,7 +53,7 @@ def build_markdown(report: dict) -> str:
         "\n### 行业风险评分（多指标加权模型）",
     ]
     for s in report.get("industry_scores", []):
-        lines.append(f"- **{s['industry']}**：{s['risk_score']}（{s['risk_level']}）")
+        lines.append(f"- **{s.get('industry', '—')}**：{s.get('risk_score', '—')}（{s.get('risk_level', '—')}）")
     lines += ["\n## 3. Transmission Mechanism（传导机制）"]
     for i, step in enumerate(report.get("transmission_path", []), 1):
         lines.append(f"{i}. {step}")

@@ -1,22 +1,33 @@
-import { useState } from 'react'
-import { uploadFile, riskColor } from '../api.js'
+import { useEffect, useState } from 'react'
+import { uploadFile, riskColor, api } from '../api.js'
 
 export default function Upload() {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [dragging, setDragging] = useState(false)
+  const [uploads, setUploads] = useState([])
+
+  const loadUploads = () => api.get('/api/uploads').then(r => setUploads(r.data.items)).catch(() => {})
+  useEffect(() => { loadUploads() }, [])
 
   const onFile = async (file) => {
     if (!file) return
     setLoading(true); setError(null); setResult(null)
     try {
-      setResult(await uploadFile(file))
+      const r = await uploadFile(file)
+      setResult(r)
+      loadUploads()
     } catch (e) {
       setError(e.response?.data?.detail || e.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  const viewFile = async (fid) => {
+    const r = await api.get(`/api/upload/${fid}`).catch(() => null)
+    if (r) setResult(r.data)
   }
 
   const risk = result?.risk_evaluation
@@ -127,6 +138,45 @@ export default function Upload() {
           </div>
         </div>
       )}
+
+      {/* 已上传文件列表 */}
+      <div className="card anim-fade-up">
+        <div className="flex items-center justify-between mb-3">
+          <div className="section-label">已上传文件（{uploads.length}）</div>
+          <button onClick={loadUploads}
+            className="text-xs text-slate-500 hover:text-blue-400 transition-colors">刷新</button>
+        </div>
+        {uploads.length === 0 ? (
+          <div className="text-xs text-slate-600 py-4 text-center">暂无上传文件（服务重启后列表清空，原始文件保留在 backend/uploads/）</div>
+        ) : (
+          <div className="space-y-2">
+            {uploads.map(u => (
+              <div key={u.file_id}
+                className="flex items-center gap-4 bg-slate-950/60 rounded-lg px-4 py-3 border border-slate-800/60 hover:border-slate-600 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-slate-200 truncate">{u.filename}</div>
+                  <div className="text-xs text-slate-500 mt-0.5 truncate">
+                    {u.shape?.[0]} 行 × {u.shape?.[1]} 列 · {u.analysis_note?.slice(0, 50)}
+                  </div>
+                </div>
+                {u.risk_score != null && (
+                  <span className="text-sm font-bold shrink-0" style={{ color: riskColor(u.risk_level) }}>
+                    {u.risk_score} · {u.risk_level}
+                  </span>
+                )}
+                <a href={`http://localhost:8000/api/upload/${u.file_id}/raw`} target="_blank" rel="noreferrer"
+                  className="text-xs px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 no-underline">
+                  原文
+                </a>
+                <button onClick={() => viewFile(u.file_id)}
+                  className="text-xs px-2.5 py-1 rounded-md bg-blue-600/80 hover:bg-blue-500 text-white shrink-0">
+                  查看
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

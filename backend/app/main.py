@@ -75,6 +75,7 @@ def chat(req: ChatRequest):
         "uploads": STATE["uploads"],
         "dashboard": STATE["dashboard"],
     })
+    report["question"] = req.question  # LLM 输出不含此字段，统一在此设置（报告列表标题用）
     report["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     report["tool_trace"] = trace
     report["agent_mode"] = AGENT.mode
@@ -100,6 +101,44 @@ async def upload(file: UploadFile = File(...)):
     summary["file_id"] = fid
     STATE["uploads"][fid] = summary
     return summary
+
+
+@app.get("/api/uploads")
+def list_uploads():
+    """已上传文件列表（含分析摘要）"""
+    items = [{
+        "file_id": fid,
+        "filename": s.get("filename", ""),
+        "shape": s.get("shape"),
+        "analysis_note": s.get("analysis_note", ""),
+        "risk_score": (s.get("risk_evaluation") or {}).get("risk_score"),
+        "risk_level": (s.get("risk_evaluation") or {}).get("risk_level"),
+    } for fid, s in STATE["uploads"].items()]
+    return {"items": items, "uploads_dir": "backend/uploads/"}
+
+
+@app.get("/api/upload/{fid}")
+def get_upload(fid: str):
+    """单个上传文件的完整分析结果"""
+    if fid not in STATE["uploads"]:
+        raise HTTPException(404, "文件不存在（服务重启后内存态清空，原始文件仍在 backend/uploads/）")
+    return STATE["uploads"][fid]
+
+
+@app.get("/api/upload/{fid}/raw")
+def get_upload_raw(fid: str):
+    """查看上传文件的原始内容（CSV 原文 / Excel 转文本预览）"""
+    import pandas as pd
+    matches = list(UPLOAD_DIR.glob(f"{fid}_*"))
+    if not matches:
+        raise HTTPException(404, "原始文件不存在")
+    path = matches[0]
+    if path.suffix.lower() == ".csv":
+        content = path.read_text(encoding="utf-8", errors="replace")
+        return PlainTextResponse(content, media_type="text/csv")
+    # Excel → 前若干行文本预览
+    df = pd.read_excel(path, sheet_name=0).head(100)
+    return PlainTextResponse(df.to_csv(index=False), media_type="text/csv")
 
 
 # ---------- Dashboard ----------

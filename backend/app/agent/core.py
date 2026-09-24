@@ -65,7 +65,13 @@ class RiskAgent:
         ]
         if ctx.get("uploads"):
             files = "; ".join(f"{fid}({s.get('filename', '')})" for fid, s in ctx["uploads"].items())
-            messages.append({"role": "user", "content": f"用户已上传数据文件，file_id 列表：{files}。如与问题相关请分析。"})
+            # 问题明确提到上传数据时，强制 LLM 调用 analyze_uploaded_data（避免随机跳过）
+            if any(k in question for k in ("上传", "数据文件", "上传数据")):
+                messages.append({"role": "user", "content": (
+                    f"用户已上传数据文件：{files}。本问题要求结合上传数据分析，"
+                    f"你必须先调用 analyze_uploaded_data 工具（file_id 任选一个）获取数据摘要后再回答。")})
+            else:
+                messages.append({"role": "user", "content": f"用户已上传数据文件，file_id 列表：{files}。如与问题相关请分析。"})
 
         trace = []
         last_impact = None   # 最后一次产业链测算的完整结果
@@ -78,7 +84,16 @@ class RiskAgent:
             msg = resp.choices[0].message
             if not msg.tool_calls:
                 report = self._parse_report(msg.content or "")
-                return self._enrich_report(report, last_impact, last_cases), trace
+                report = self._enrich_report(report, last_impact, last_cases)
+                # 保险：问题要求结合上传数据但 LLM 未调用工具 → 直接融合数据摘要
+                if ctx.get("uploads") and any(k in question for k in ("上传", "数据文件")):
+                    fid = next(iter(ctx["uploads"]))
+                    s = ctx["uploads"][fid]
+                    if not any("上传数据" in b or s.get("filename", "") in str(b) for b in report.get("data_basis", [])):
+                        report.setdefault("data_basis", []).append(f"上传数据: {s.get('filename', fid)}")
+                        note = f"（补充：上传数据 {s.get('filename', '')} 分析结论——{s.get('analysis_note', '')}）"
+                        report["summary"] = str(report.get("summary", "")) + note
+                return report, trace
             messages.append(msg)
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments or "{}")
@@ -103,11 +118,15 @@ class RiskAgent:
         if impact:
             report.setdefault("impact", impact)
             matrix = {r["industry"]: r for r in impact.get("impact_matrix", [])}
+            # LLM 未输出 affected_industries 时，直接取模型测算的影响矩阵前5行业
+            if not report.get("affected_industries"):
+                report["affected_industries"] = impact.get("impact_matrix", [])[:5]
             for row in report.get("affected_industries", []):
                 m = matrix.get(row.get("industry"))
                 if m:
-                    for k in ("delta_output_yi", "direct_effect_yi", "indirect_effect_yi", "debt_ratio"):
-                        if k not in row:
+                    for k in ("impact_pct", "delta_output_yi", "direct_effect_yi",
+                              "indirect_effect_yi", "debt_ratio"):
+                        if k not in row or not isinstance(row.get(k), (int, float)):
                             row[k] = m[k]
         if cases:
             report.setdefault("similar_cases", [
