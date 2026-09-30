@@ -16,6 +16,7 @@ from .agent.tools import execute_tool
 from .models import input_output as io
 from .services import upload as upload_svc
 from .services import report as report_svc
+from .services import store
 
 STATE = {"reports": {}, "uploads": {}, "dashboard": {}}
 AGENT = RiskAgent()
@@ -23,11 +24,13 @@ AGENT = RiskAgent()
 
 def _default_dashboard() -> dict:
     macro = json.loads((DATA_DIR / "macro_history.json").read_text(encoding="utf-8"))
+    monthly = json.loads((DATA_DIR / "macro_monthly.json").read_text(encoding="utf-8"))
     return {
         "risk_score": 0, "risk_level": "-",
         "industry_impact": [], "industry_scores": [], "key_indicators": [],
         "supply_chain": io.supply_chain_graph(),
         "historical_comparison": macro,
+        "transmission_monthly": monthly,  # 真实月度序列（2021-10~2026-08）
         "updated_at": None,
     }
 
@@ -54,7 +57,11 @@ def _refresh_dashboard(report: dict):
 async def lifespan(app: FastAPI):
     kb_status = rag.build_knowledge_base()
     STATE["dashboard"] = _default_dashboard()
-    print(f"[KB] 知识库就绪: {kb_status}  |  Agent 模式: {AGENT.mode}")
+    # SQLite 持久化恢复（重启后报告/上传历史不丢）
+    db = store.init_db()
+    STATE["reports"] = store.load_reports()
+    STATE["uploads"] = store.load_uploads()
+    print(f"[DB] {db} 恢复: {len(STATE['reports'])} 报告, {len(STATE['uploads'])} 上传  |  Agent 模式: {AGENT.mode}")
     yield
 
 
@@ -82,8 +89,37 @@ def chat(req: ChatRequest):
     report["report_id"] = str(uuid.uuid4())[:8]
     STATE["reports"][report["report_id"]] = report
     report_svc.save_report(report)
+    store.save_report(report)  # SQLite 持久化
     _refresh_dashboard(report)
     return report
+
+
+@app.get("/api/chat/stream")
+def chat_stream(q: str):
+    """SSE 流式问答：实时推送工具调用轨迹 + 最终报告"""
+    if not q.strip():
+        raise HTTPException(400, "问题不能为空")
+
+    from fastapi.responses import StreamingResponse
+
+    def gen():
+        for ev in AGENT.run_stream(q, ctx={"uploads": STATE["uploads"],
+                                           "dashboard": STATE["dashboard"]}):
+            if ev["type"] == "final":
+                report = ev["report"]
+                report["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                report["question"] = q
+                report["agent_mode"] = AGENT.mode
+                report["report_id"] = str(uuid.uuid4())[:8]
+                STATE["reports"][report["report_id"]] = report
+                report_svc.save_report(report)
+                store.save_report(report)
+                _refresh_dashboard(report)
+            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ---------- 数据上传 ----------
@@ -100,6 +136,7 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(422, f"文件解析失败: {e}")
     summary["file_id"] = fid
     STATE["uploads"][fid] = summary
+    store.save_upload(fid, file.filename, summary)  # SQLite 持久化
     return summary
 
 
@@ -139,6 +176,59 @@ def get_upload_raw(fid: str):
     # Excel → 前若干行文本预览
     df = pd.read_excel(path, sheet_name=0).head(100)
     return PlainTextResponse(df.to_csv(index=False), media_type="text/csv")
+
+
+# ---------- 行业画像（图谱节点点击，ROADMAP 4.2） ----------
+# 部门 → 月度序列映射（macro_monthly.json）
+_IND_MACRO = {
+    "房地产": ["开发投资同比", "新开工同比", "施工同比", "销售面积同比"],
+    "建筑业": ["新开工同比", "施工同比"],
+    "钢铁": ["粗钢产量同比"],
+    "建材": ["水泥产量同比", "玻璃产量同比"],
+    "家用电器": ["PPI同比"], "家具制造": ["PPI同比"], "化工": ["PPI同比"],
+}
+
+
+@app.get("/api/industry/{name}")
+def industry_profile(name: str):
+    if name not in io.SECTOR_NAMES:
+        raise HTTPException(404, f"未知行业: {name}")
+    j = io.SECTOR_NAMES.index(name)
+    L = io.leontief_inverse(io.A)
+    # 直接消耗结构（该行业每单位产出消耗哪些上游）
+    inputs = sorted(
+        ({"industry": io.SECTOR_NAMES[i], "coefficient": round(float(io.A[i][j]), 4)}
+         for i in range(io.N) if io.A[i][j] >= 0.02),
+        key=lambda x: -x["coefficient"])
+    # 下游去向（哪些行业使用该行业产品）
+    outputs = sorted(
+        ({"industry": io.SECTOR_NAMES[k], "coefficient": round(float(io.A[j][k]), 4)}
+         for k in range(io.N) if io.A[j][k] >= 0.02),
+        key=lambda x: -x["coefficient"])
+    # 最新月度数据
+    monthly = {}
+    try:
+        mm = json.loads((DATA_DIR / "macro_monthly.json").read_text(encoding="utf-8"))["series"]
+        for key in _IND_MACRO.get(name, []):
+            if key in mm and mm[key]:
+                last = list(mm[key].items())[-1]
+                monthly[key] = {"month": last[0], "value": last[1]}
+    except Exception:
+        pass
+    # 当前评分（若有分析）
+    score = next((s for s in STATE["dashboard"].get("industry_scores", [])
+                  if s["industry"] == name), None)
+    return {
+        "industry": name,
+        "multiplier": round(float(L[:, j].sum()), 2),      # 影响力乘数
+        "base_output_yi": round(float(io.X_BASE[j]), 0),   # 基准总产出（亿元）
+        "debt_ratio": io.DEBT.get(name),
+        "debt_ratio_source": io._IO.get("debt_ratio_source", {}).get(name, "演示口径"),
+        "top_inputs": inputs[:6],
+        "top_outputs": outputs[:6],
+        "latest_macro": monthly,
+        "risk": score,
+    }
 
 
 # ---------- Dashboard ----------

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getDashboard, riskColor } from '../api.js'
+import { getDashboard, riskColor, api } from '../api.js'
 import Chart from '../components/Chart.jsx'
 import ForceGraph from '../components/ForceGraph.jsx'
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
+  const [profile, setProfile] = useState(null)  // 节点画像侧边卡
 
   useEffect(() => {
     // 数据未变化时返回原引用，避免 8 秒轮询触发图表重渲染（图谱节点跳位置）
@@ -95,11 +96,58 @@ export default function Dashboard() {
           }} /> : <Empty />}
         </div>
 
-        {/* Supply Chain Graph —— 2/3宽；高度与右侧列（grid行高）一致，画布填满卡片 */}
+        {/* Supply Chain Graph —— 2/3宽；高度与右侧列（grid行高）一致，画布填满卡片；点击节点弹出画像 */}
         <div className="card card-hover lg:col-span-2 anim-fade-up flex flex-col">
-          <div className="section-label mb-2">产业链传导图谱（连线=直接消耗系数≥0.03，节点大小=受冲击程度）</div>
+          <div className="section-label mb-2">产业链传导图谱（连线=直接消耗系数≥0.03，节点大小=受冲击程度 · 点击节点查看画像）</div>
           <div className="flex-1 relative min-h-[480px]">
-            <ForceGraph nodes={data.supply_chain.nodes} links={data.supply_chain.links} />
+            <ForceGraph nodes={data.supply_chain.nodes} links={data.supply_chain.links}
+              onNodeClick={name => api.get(`/api/industry/${encodeURIComponent(name)}`)
+                .then(r => setProfile(r.data)).catch(() => setProfile(null))} />
+            {profile && (
+              <div className="absolute top-2 right-2 w-72 bg-slate-950/95 border border-slate-700 rounded-xl p-4 z-20 shadow-2xl backdrop-blur">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-blue-300">{profile.industry}</h4>
+                  <button onClick={() => setProfile(null)}
+                    className="text-slate-500 hover:text-slate-300 text-sm leading-none">✕</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                  <div className="bg-slate-900 rounded-lg p-2 border border-slate-800">
+                    <div className="text-slate-500">影响力乘数</div>
+                    <div className="text-lg font-bold text-cyan-300">{profile.multiplier}</div>
+                  </div>
+                  <div className="bg-slate-900 rounded-lg p-2 border border-slate-800">
+                    <div className="text-slate-500">基准总产出</div>
+                    <div className="text-lg font-bold text-slate-200">{(profile.base_output_yi / 10000).toFixed(1)}万亿</div>
+                  </div>
+                </div>
+                {profile.risk && (
+                  <div className="text-xs mb-2 px-2 py-1.5 rounded-lg border border-slate-800 bg-slate-900">
+                    风险评分 <span className="font-bold" style={{ color: riskColor(profile.risk.risk_level) }}>{profile.risk.risk_score}</span>
+                    <span className="ml-1" style={{ color: riskColor(profile.risk.risk_level) }}>{profile.risk.risk_level}</span>
+                  </div>
+                )}
+                {profile.debt_ratio != null && (
+                  <div className="text-xs text-slate-500 mb-2">
+                    资产负债率 {profile.debt_ratio}% <span className="text-slate-600">（{profile.debt_ratio_source?.slice(0, 14)}…）</span>
+                  </div>
+                )}
+                {profile.top_inputs?.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[11px] text-slate-500 mb-1">主要上游（直接消耗系数）</div>
+                    {profile.top_inputs.slice(0, 4).map(t => (
+                      <div key={t.industry} className="flex items-center gap-2 text-xs py-0.5">
+                        <span className="text-slate-300 w-14 truncate">{t.industry}</span>
+                        <div className="flex-1 h-1 bg-slate-800 rounded"><div className="h-full bg-blue-500 rounded" style={{ width: `${Math.min(t.coefficient * 400, 100)}%` }} /></div>
+                        <span className="text-slate-500 w-10 text-right">{t.coefficient}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {Object.entries(profile.latest_macro || {}).map(([k, v]) => (
+                  <div key={k} className="text-xs text-slate-500">最新{k}：{v.month} {v.value}%</div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -158,6 +206,37 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* 传导验证（真实月度数据） */}
+      {data.transmission_monthly?.series && (
+        <div className="card anim-fade-up lg:col-span-3">
+          <div className="section-label mb-2">
+            传导验证（真实月度数据 2021.10~2026.08：地产指标 → 上游产量/PPI 同步下行）
+          </div>
+          <Chart height={330} option={{
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['新开工面积', '销售面积', '水泥产量', '玻璃产量', 'PPI'],
+                      bottom: 0, textStyle: { color: '#94a3b8', fontSize: 11 } },
+            grid: { left: 50, right: 20, top: 15, bottom: 65 },
+            xAxis: { type: 'category',
+                     data: Object.keys(data.transmission_monthly.series['新开工同比'] || {}),
+                     axisLabel: { interval: 5, rotate: 45, fontSize: 10 } },
+            yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+            series: [
+              ['新开工同比', '新开工面积', '#ef4444'],
+              ['销售面积同比', '销售面积', '#f97316'],
+              ['水泥产量同比', '水泥产量', '#38bdf8'],
+              ['玻璃产量同比', '玻璃产量', '#22d3ee'],
+              ['PPI同比', 'PPI', '#94a3b8'],
+            ].map(([key, name, color]) => ({
+              name, type: 'line', smooth: true, symbol: 'none',
+              data: Object.values(data.transmission_monthly.series[key] || {}),
+              lineStyle: { color, width: name === '新开工面积' ? 2.5 : 1.5 },
+              itemStyle: { color },
+            })),
+          }} />
+        </div>
+      )}
 
       {data.industry_scores?.length > 0 && (
         <div className="card anim-fade-up lg:col-span-3">

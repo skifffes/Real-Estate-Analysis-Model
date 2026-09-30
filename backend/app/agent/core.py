@@ -48,17 +48,35 @@ class RiskAgent:
     # ---------------- 主入口 ----------------
     def run(self, question: str, ctx: dict | None = None) -> tuple[dict, list]:
         """返回 (结构化报告, 工具调用轨迹)"""
+        report, trace = {}, []
+        for ev in self.run_stream(question, ctx or {}):
+            if ev["type"] == "tool" and ev.get("status") == "done":
+                trace.append({"tool": ev["tool"], "args": ev.get("args", {}),
+                              "result_preview": ev.get("result_preview", "")})
+            elif ev["type"] == "final":
+                report = ev["report"]
+        return report, trace
+
+    def run_stream(self, question: str, ctx: dict):
+        """生成器：yield {type: tool|final, ...}，供 SSE 流式输出工具轨迹"""
         if self.client:
             try:
-                return self._llm_run(question, ctx or {})
+                yield from self._llm_stream(question, ctx)
+                return
             except Exception as e:
-                report, trace = self._rule_run(question, ctx or {})
+                report, trace = self._rule_run(question, ctx)
                 report["summary"] = f"[LLM调用失败已降级: {type(e).__name__}] " + report.get("summary", "")
-                return report, trace
-        return self._rule_run(question, ctx or {})
+                for t in trace:
+                    yield {"type": "tool", "status": "done", **t}
+                yield {"type": "final", "report": report}
+                return
+        report, trace = self._rule_run(question, ctx)
+        for t in trace:
+            yield {"type": "tool", "status": "done", **t}
+        yield {"type": "final", "report": report}
 
-    # ---------------- LLM 路径 ----------------
-    def _llm_run(self, question: str, ctx: dict) -> tuple[dict, list]:
+    # ---------------- LLM 路径（流式） ----------------
+    def _llm_stream(self, question: str, ctx: dict):
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": question},
@@ -73,7 +91,6 @@ class RiskAgent:
             else:
                 messages.append({"role": "user", "content": f"用户已上传数据文件，file_id 列表：{files}。如与问题相关请分析。"})
 
-        trace = []
         last_impact = None   # 最后一次产业链测算的完整结果
         last_cases = []      # 最后一次案例检索结果
         for _ in range(8):  # 最多 8 轮工具调用
@@ -93,22 +110,27 @@ class RiskAgent:
                         report.setdefault("data_basis", []).append(f"上传数据: {s.get('filename', fid)}")
                         note = f"（补充：上传数据 {s.get('filename', '')} 分析结论——{s.get('analysis_note', '')}）"
                         report["summary"] = str(report.get("summary", "")) + note
-                return report, trace
+                yield {"type": "final", "report": report}
+                return
             messages.append(msg)
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments or "{}")
+                yield {"type": "tool", "status": "start", "tool": tc.function.name, "args": args}
                 result = execute_tool(tc.function.name, args, ctx)
-                trace.append({"tool": tc.function.name, "args": args,
-                              "result_preview": json.dumps(result, ensure_ascii=False)[:200]})
                 if tc.function.name == "analyze_industry_chain_impact":
                     last_impact = result
                 elif tc.function.name == "retrieve_similar_cases":
                     last_cases = result.get("cases", [])
+                yield {"type": "tool", "status": "done", "tool": tc.function.name, "args": args,
+                       "result_preview": json.dumps(result, ensure_ascii=False)[:160]}
                 messages.append({
                     "role": "tool", "tool_call_id": tc.id,
                     "content": json.dumps(result, ensure_ascii=False)[:6000],
                 })
-        return self._rule_run(question, ctx)  # 超轮次兜底
+        report, trace = self._rule_run(question, ctx)  # 超轮次兜底
+        for t in trace:
+            yield {"type": "tool", "status": "done", **t}
+        yield {"type": "final", "report": report}
 
     @staticmethod
     def _enrich_report(report: dict, impact: dict | None, cases: list | None = None) -> dict:

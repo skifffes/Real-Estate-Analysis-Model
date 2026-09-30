@@ -1,0 +1,227 @@
+<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>知识库与数据补充规范</title><style>
+body { font-family: "PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+       max-width: 860px; margin: 0 auto; padding: 32px 24px;
+       color: #1e293b; background: #f8fafc; line-height: 1.75; }
+h1 { color: #1d4ed8; border-bottom: 3px solid #3b82f6; padding-bottom: 10px; }
+h2 { color: #1e40af; margin-top: 36px; border-left: 4px solid #3b82f6; padding-left: 12px; }
+blockquote { background: #eff6ff; border-left: 4px solid #93c5fd;
+             margin: 16px 0; padding: 10px 16px; border-radius: 0 8px 8px 0; color: #3730a3; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; background: #fff; }
+th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 14px; }
+th { background: #dbeafe; color: #1e3a8a; }
+tr:nth-child(even) td { background: #f1f5f9; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px;
+      overflow-x: auto; font-size: 13px; }
+code { background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #be185d; }
+pre code { background: none; color: inherit; padding: 0; }
+hr { border: none; border-top: 1px solid #cbd5e1; margin: 28px 0; }
+li { margin: 4px 0; }
+</style></head><body><h1>知识库与数据补充规范</h1>
+<blockquote>
+<p>供协作同学参考。按以下模板/要求提供的内容，可直接导入系统知识库与分析模块。
+文档版本：2026-09-27</p>
+</blockquote>
+<hr />
+<h2>一、历史案例补充模板（案例库扩充）</h2>
+<h3>1.1 选案建议（不同类型 × 城市能级）</h3>
+<p>建议覆盖<strong>四种类型</strong>，每种 1-2 个案例，形成"类型完备"的案例库：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>候选城市</th>
+<th>建议理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>政策急冻型</td>
+<td>深圳（2021 二手房指导价）</td>
+<td>政策直接压制交易，量价齐跌的典型</td>
+</tr>
+<tr>
+<td>企业暴雷型</td>
+<td>郑州（2022 烂尾楼/停贷断供潮）</td>
+<td>房企信用风险向居民端、金融端传导</td>
+</tr>
+<tr>
+<td>投机崩盘型</td>
+<td>温州（2011-2014 炒房团崩盘）</td>
+<td>三线城市投机泡沫完整周期</td>
+</tr>
+<tr>
+<td>需求透支型</td>
+<td>燕郊（环京腰斩）</td>
+<td>外溢需求退潮后的极端跌幅</td>
+</tr>
+</tbody>
+</table>
+<p>另可选补充：北京（政策组合拳全周期）、杭州（2021 抢人+调控）。</p>
+<h3>1.2 单个案例的字段模板</h3>
+<p>每个案例提供以下字段（文本即可，我负责结构化入库）：</p>
+<pre><code class="language-yaml">id: case_sz_2021            # 城市_年份
+title: 深圳二手房指导价调控（2021）
+year: 2021
+city_tier: 一线              # 一线/二线/三线/环京
+type: 政策急冻型             # 四类型之一
+
+# —— 背景与触发 ——
+policy_context: &gt;            # 当时全国与本地政策环境（2-4句）
+trigger: &gt;                   # 触发事件/政策内容（关键政策文件名、发布时间）
+
+# —— 传导过程 ——
+transmission:                # 按时间顺序列传导步骤，每步1-2句
+  - 第一步：...
+  - 第二步：...
+
+# —— 涉及主体 ——
+key_players:                 # 涉及的企业/机构/群体及其角色
+  - name: 中介机构
+    role: 指导价下挂牌量激增、成交冻结
+  - name: 本地银行
+    role: 按揭业务量变化、评估价与指导价差异处理
+
+# —— 量化证据（核心，尽量给数字）——
+quantitative_evidence:
+  二手房成交量变化: 同比 -60%+（2021年2-3月）
+  挂牌价与成交价价差: 约 20%-30%
+  影响持续时间: 至今未完全恢复
+
+# —— 结果与启示 ——
+peak_impact: 峰值影响一句话
+resolution: 政策如何收尾/消化
+lessons: 对产业链风险分析的启示（1-2句）
+data_sources: [深圳中原/乐有家研究中心, 国家统计局70城指数, 贝壳研究院]
+</code></pre>
+<h3>1.3 优先级说明</h3>
+<ul>
+<li><strong>量化证据 &gt; 定性描述</strong>：传导路径有数字（成交量、跌幅、持续时间）最有价值</li>
+<li><strong>政策文件名</strong>：如"深房参考价机制"的官方名称，便于知识库精确检索</li>
+<li>4-6 个案例即可，宁精勿滥</li>
+</ul>
+<hr />
+<h2>二、行业指标与财务数据要求（传导机制量化补充）</h2>
+<h3>2.1 覆盖行业</h3>
+<p>优先级排序（对应系统 13 部门口径）：</p>
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>行业</th>
+<th>核心指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P0</td>
+<td>房地产</td>
+<td>新开工/施工/竣工面积、销售面积与金额、70城/百城价格指数、房企到位资金</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>建筑</td>
+<td>建筑业总产值、PMI 建筑分项</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>建材</td>
+<td>水泥产量与价格、玻璃产量与库存、螺纹钢产量与价格</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>家电家具</td>
+<td>家电零售额、家具零售额、地产后周期销售数据</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>金融</td>
+<td>居民中长期贷款、房企信用债发行与违约、银行房地产不良率</td>
+</tr>
+</tbody>
+</table>
+<h3>2.2 格式要求（重要）</h3>
+<p><strong>格式</strong>：CSV 或 Excel，<strong>长表或宽表均可</strong>，但请满足：</p>
+<ol>
+<li><strong>频率</strong>：月度优先（季度可接受）；时间跨度至少 <strong>2015 至今</strong>（覆盖完整上行→下行周期）</li>
+<li><strong>列名规范</strong>：列名中包含指标性质关键词，系统自动识别：</li>
+<li>收入/销售/营收/产量 → 收入类</li>
+<li>负债率/资产负债率 → 债务类</li>
+<li>现金流 → 现金流类</li>
+<li>价格/需求 → 市场类</li>
+<li><strong>同比/环比标注</strong>：数值请明确是同比%、环比%还是绝对值（列名注明）</li>
+<li><strong>缺失处理</strong>：缺失月份留空即可，勿填 0</li>
+<li><strong>来源标注</strong>：每个文件注明数据出处（统计局/行业协会/Wind/Choice）</li>
+</ol>
+<p><strong>示例列名</strong>（可直接套用）：</p>
+<pre><code class="language-csv">月份,商品房销售面积同比(%),新开工面积同比(%),水泥产量同比(%),螺纹钢价格同比(%),家电零售额同比(%),居民中长期贷款同比(%)
+2021-01,64.3,64.3,10.1,9.8,15.1,31.6
+...
+</code></pre>
+<h3>2.3 上市公司财务数据（可选加强）</h3>
+<p>覆盖 8-10 家代表性房企（如万科、保利、中海、碧桂园、旭辉等）+ 5 家链上企业（如东方雨虹、海螺水泥、美的置业）：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>公司/季度</td>
+<td>覆盖 2019 至今，季频</td>
+</tr>
+<tr>
+<td>营收同比</td>
+<td>%</td>
+</tr>
+<tr>
+<td>资产负债率</td>
+<td>%（三道红线口径最好给剔除预收款后）</td>
+</tr>
+<tr>
+<td>现金短债比</td>
+<td>倍</td>
+</tr>
+<tr>
+<td>经营现金流同比</td>
+<td>%</td>
+</tr>
+</tbody>
+</table>
+<p>拿到后我会做两件事：① 风险评分模型的实证校准（权重不再手设）② 上传演示用真实数据替换样本 CSV。</p>
+<h3>2.4 交付方式</h3>
+<p>文件放 <code>d:\python\Financial\项目竞赛资料\</code> 任意子目录（或微信直接发我），注明口径即可，导入/清洗由我处理。</p>
+<hr />
+<h2>三、待办与时间建议</h2>
+<table>
+<thead>
+<tr>
+<th>任务</th>
+<th>负责人</th>
+<th>建议完成</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>案例 4-6 个（按 1.2 模板）</td>
+<td>学弟</td>
+<td>优先</td>
+</tr>
+<tr>
+<td>P0 行业月度指标（2015 至今）</td>
+<td>学弟</td>
+<td>优先</td>
+</tr>
+<tr>
+<td>上市公司财务数据</td>
+<td>学弟</td>
+<td>可延后</td>
+</tr>
+<tr>
+<td>数据导入、风险模型校准、知识库更新</td>
+<td>学长</td>
+<td>收到数据后 1-2 天内</td>
+</tr>
+</tbody>
+</table></body></html>

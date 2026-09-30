@@ -25,11 +25,41 @@ export default function Home() {
     setInput('')
     setMessages(m => [...m, { role: 'user', text: question }])
     setLoading(true)
+    // 流式：实时显示 Agent 工具调用轨迹（SSE）
+    const traceKey = `t_${Date.now()}`
+    setMessages(m => [...m, { role: 'ai', streaming: true, traceKey, events: [] }])
     try {
-      const report = await chat(question)
-      setMessages(m => [...m, { role: 'ai', report }])
+      const resp = await fetch(
+        `http://localhost:8000/api/chat/stream?q=${encodeURIComponent(question)}`)
+      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n\n')
+        buf = lines.pop()  // 末尾可能是不完整块
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6)
+          if (payload === '[DONE]') continue
+          let ev
+          try { ev = JSON.parse(payload) } catch { continue }
+          setMessages(m => m.map(msg =>
+            msg.traceKey === traceKey
+              ? (ev.type === 'tool'
+                  ? { ...msg, events: [...msg.events, ev] }
+                  : { ...msg, report: ev.report, streaming: false })
+              : msg))
+        }
+      }
     } catch (e) {
-      setMessages(m => [...m, { role: 'ai', error: e.response?.data?.detail || e.message }])
+      setMessages(m => m.map(msg =>
+        msg.traceKey === traceKey
+          ? { ...msg, streaming: false, error: String(e.message || e) }
+          : msg))
     } finally {
       setLoading(false)
     }
@@ -97,10 +127,38 @@ export default function Home() {
               </div>
             </div>
           ) : (
-            <div key={i} className="flex justify-start anim-fade-up">
+            <div key={i} className="flex flex-col items-start gap-3 w-full anim-fade-up">
+              {/* 流式：实时工具调用轨迹 */}
+              {m.streaming && m.events?.length > 0 && (
+                <div className="card max-w-3xl w-full py-4 space-y-2">
+                  <div className="flex items-center gap-3 text-sm text-slate-300">
+                    <div className="flex gap-1.5">
+                      <span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" />
+                    </div>
+                    Agent 正在调用工具（{m.events.filter(e => e.status === 'done').length}/{m.events.length} 完成）…
+                  </div>
+                  <div className="loading-bar" />
+                  <div className="space-y-1.5 font-mono text-[11px] pt-1">
+                    {m.events.map((e, j) => e.status === 'start' ? (
+                      <div key={j} className="flex items-center gap-2 text-slate-400">
+                        <span className="text-blue-400">→</span>
+                        <span className="text-blue-300">{e.tool}</span>
+                        <span className="text-slate-600">{JSON.stringify(e.args).slice(0, 50)}</span>
+                        <span className="text-amber-400 animate-pulse">执行中…</span>
+                      </div>
+                    ) : (
+                      <div key={j} className="flex items-center gap-2 text-emerald-400/80">
+                        <span>✓</span>
+                        <span className="text-emerald-300">{e.tool}</span>
+                        <span className="text-slate-600 truncate max-w-md">{e.result_preview?.slice(0, 60)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {m.error
                 ? <div className="card !border-red-900/70 text-red-400 text-sm">{m.error}</div>
-                : <ReportView report={m.report} />}
+                : m.report && <ReportView report={m.report} />}
             </div>
           ))}
 

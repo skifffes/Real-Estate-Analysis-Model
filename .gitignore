@@ -13,6 +13,7 @@ venv/
 **/kb_store/
 backend/uploads/
 backend/reports/
+backend/app/data/app.db*
 *.log
 
 # CodeBuddy IDE 数据

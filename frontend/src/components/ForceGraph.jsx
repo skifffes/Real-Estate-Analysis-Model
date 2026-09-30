@@ -9,7 +9,7 @@ import * as echarts from 'echarts'
  * 尺寸策略：根容器 absolute inset-0 填满父级（父级需 relative 且有确定高度，
  * 由父级/grid 行高决定），画布再铺满根容器——图例 bottom:0 恒等于模块底部。
  */
-export default function ForceGraph({ nodes, links }) {
+export default function ForceGraph({ nodes, links, onNodeClick }) {
   const ref = useRef(null)
   const chartRef = useRef(null)
   const [settling, setSettling] = useState(true)
@@ -78,6 +78,14 @@ export default function ForceGraph({ nodes, links }) {
         links,
       }],
     }, true)
+
+    // 节点点击 → 画像回调（ROADMAP 4.2）
+    chart.off('click')
+    if (onNodeClick) {
+      chart.on('click', p => {
+        if (p.dataType === 'node') onNodeClick(p.name)
+      })
+    }
 
     setSettling(true)
 

@@ -1,0 +1,164 @@
+<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>数据提交反馈（第二轮）</title><style>
+body { font-family: "PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+       max-width: 880px; margin: 0 auto; padding: 32px 24px;
+       color: #1e293b; background: #f8fafc; line-height: 1.75; }
+h1 { color: #1d4ed8; border-bottom: 3px solid #3b82f6; padding-bottom: 10px; }
+h2 { color: #1e40af; margin-top: 36px; border-left: 4px solid #3b82f6; padding-left: 12px; }
+blockquote { background: #eff6ff; border-left: 4px solid #93c5fd;
+             margin: 16px 0; padding: 10px 16px; border-radius: 0 8px 8px 0; color: #3730a3; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; background: #fff; }
+th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 14px; }
+th { background: #dbeafe; color: #1e3a8a; }
+tr:nth-child(even) td { background: #f1f5f9; }
+code { background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #be185d; }
+hr { border: none; border-top: 1px solid #cbd5e1; margin: 28px 0; }
+li { margin: 4px 0; }
+</style></head><body><h1>数据提交反馈与补充清单（第二轮）</h1>
+<blockquote>
+<p>2026-09-30 收到 33 个数据文件 + 4 份分析文档，已全量核验。整体质量很高（Wind 标准口径、时间范围 2021.10~2026.08 覆盖完整下行周期，部分序列长达 1992/2000 年起）。
+本文分三部分：① 已确认入库的内容 ② 发现的问题（需要重新导出）③ 仍缺的数据。</p>
+</blockquote>
+<hr />
+<h2>一、已确认有效，将导入系统（无需重做）</h2>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>文件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>房地产核心（月度）</td>
+<td>开发投资、新开工、施工、销售面积+销售额</td>
+<td>✓ 齐全</td>
+</tr>
+<tr>
+<td><strong>产量（月度）</strong></td>
+<td><strong>水泥、粗钢、平板玻璃</strong></td>
+<td>✓ 水泥/粗钢在"平板玻璃产量.xlsx"里，已确认</td>
+</tr>
+<tr>
+<td>宏观（月度/季度）</td>
+<td>GDP、M2、社融、PPI+CPI、固投、国房景气指数</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>财政（年度）</td>
+<td>契税、土地增值税、房产税</td>
+<td>✓ 土地财政传导验证</td>
+</tr>
+<tr>
+<td>金融</td>
+<td>居民贷款、个人住房贷款余额及同比</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><strong>超预期的长序列</strong></td>
+<td>房地产业 GDP 当季值（1992起）、GDP 拉动（1992起）、居民杠杆率四国对比（1947起）、申万地产指数（日频1999起）</td>
+<td>✓✓ 国际对标/历史演变分析极有用</td>
+</tr>
+<tr>
+<td><strong>行业财务</strong></td>
+<td>申万三级行业资产负债率（140行）、带息负债比率、现金流动负债比率、应收账款周转率（2000起）、毛利率净利率</td>
+<td>✓✓ 直接用于风险评分模型校准</td>
+</tr>
+<tr>
+<td>产业链传导</td>
+<td>上/中/下游营收净利增速</td>
+<td>✓（上游2021-2025，下游2023-2025）</td>
+</tr>
+</tbody>
+</table>
+<p>分析文档（研报×2 + 传导机制分析×2）将导入知识库供 RAG 检索。</p>
+<hr />
+<h2>二、发现的问题（请修正后重新导出）</h2>
+<h3>2.1 竣工面积数据错误 ⚠️ 最重要</h3>
+<ul>
+<li><code>房屋竣工面积（近5年月度）.xlsx</code> 和 <code>竣工面积（近5年月度）.xlsx</code> <strong>两个文件里装的列都是"房屋新开工面积:累计同比(%)"</strong></li>
+<li>应该是导出时选错指标。请重新导出：<strong>中国:房屋竣工面积:累计同比(%)</strong>（月度，2021.10~最新）</li>
+<li>竣工是"保交楼"政策验证的关键指标（新开工跌→2-3年后竣工跌→下游家电家具承压），不能缺</li>
+</ul>
+<h3>2.2 水泥/粗钢藏在玻璃文件里（小问题，知悉即可）</h3>
+<ul>
+<li>"平板玻璃产量.xlsx"实际含 6 列：水泥、粗钢（重复3列）、平板玻璃</li>
+<li>下次导出建议一指标一文件，或多指标文件命名为"上游产量"</li>
+</ul>
+<h3>2.3 数据口径备注</h3>
+<ul>
+<li>固定资产投资（季度）缺失率 33%（"新增固定资产投资"列缺）——若方便请补，不方便可忽略</li>
+<li>国房景气指数已停止发布（止于 2025-12），知悉即可</li>
+</ul>
+<hr />
+<h2>三、仍缺的数据（按优先级）</h2>
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>指标</th>
+<th>频率/范围</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P0</strong></td>
+<td><strong>房屋竣工面积:累计同比(%)</strong>（重导）</td>
+<td>月度 2021.10~今</td>
+<td>保交楼/后周期传导</td>
+</tr>
+<tr>
+<td><strong>P0</strong></td>
+<td><strong>70个大中城市新建商品住宅价格指数</strong>（环比或同比）</td>
+<td>月度 同上</td>
+<td>价格维度——目前全库只有"量"没有"价"</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>房地产开发企业到位资金:累计同比(%)</td>
+<td>月度</td>
+<td>融资压力（领先指标）</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>水泥价格指数 / 螺纹钢价格</td>
+<td>月度</td>
+<td>上游"量价"分离验证</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>家用电器和音像器材类、家具类<strong>社会消费品零售总额</strong>当月同比</td>
+<td>月度</td>
+<td>下游用社零口径（现仅有上市公司营收，且仅2023-2025三年）</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>建筑业总产值 / 建筑业PMI</td>
+<td>季度或月度</td>
+<td>中游行业全口径（现仅有上市建企）</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>中债/房企信用债违约金额；商业银行房地产不良贷款率</td>
+<td>季度</td>
+<td>金融加速器验证</td>
+</tr>
+</tbody>
+</table>
+<h2>四、案例库（第一轮规范中的第一优先项，尚未开始）</h2>
+<p>数据部分已基本到位，<strong>案例库仍为 0</strong>。请按《协作补充规范》第 1.2 节模板提供 4 个案例：</p>
+<ol>
+<li><strong>深圳</strong>（2021 二手房指导价）——政策急冻型</li>
+<li><strong>郑州</strong>（2022 烂尾楼/停贷）——企业暴雷型</li>
+<li><strong>温州</strong>（2011-2014 炒房崩盘）——投机崩盘型</li>
+<li><strong>燕郊</strong>（环京腰斩）——需求透支型</li>
+</ol>
+<p>每个案例按模板给：政策背景、触发事件、传导步骤（按时间）、涉及主体、<strong>量化证据（成交跌幅/持续时间等数字）</strong>、峰值影响、启示。文本描述即可，格式化入库由我处理。</p>
+<hr />
+<h2>五、时间建议</h2>
+<ul>
+<li>P0 两项 + 案例库 → <strong>优先补齐</strong>（补齐后数据层完备，我即可完成模型校准）</li>
+<li>P1/P2 → 次轮</li>
+<li>已收到的 33 个文件无需任何改动，问题项（2.1 竣工面积）重导覆盖即可</li>
+</ul></body></html>

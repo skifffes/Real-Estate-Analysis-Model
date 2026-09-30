@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统优化路线图</title>
+<style>
+  body { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+         max-width: 860px; margin: 0 auto; padding: 32px 24px;
+         color: #1e293b; background: #f8fafc; line-height: 1.75; }
+  h1 { color: #1d4ed8; border-bottom: 3px solid #3b82f6; padding-bottom: 10px; }
+  h2 { color: #1e40af; margin-top: 36px; border-left: 4px solid #3b82f6; padding-left: 12px; }
+  h3 { color: #334155; }
+  blockquote { background: #eff6ff; border-left: 4px solid #93c5fd;
+               margin: 16px 0; padding: 10px 16px; border-radius: 0 8px 8px 0;
+               color: #3730a3; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; background: #fff; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 14px; }
+  th { background: #dbeafe; color: #1e3a8a; }
+  tr:nth-child(even) td { background: #f1f5f9; }
+  code { background: #e2e8f0; padding: 2px 6px; border-radius: 4px;
+         font-size: 13px; color: #be185d; }
+  hr { border: none; border-top: 1px solid #cbd5e1; margin: 28px 0; }
+  li { margin: 4px 0; }
+  @media print { body { background: #fff; } }
+</style>
+</head>
+<body>
+<h1>系统优化路线图（Roadmap）</h1>
+<blockquote>
+<p>房地产产业链风险分析智能体 · 2026-09-26 体检报告
+全部为待办建议，尚未实施任何一项。圈定范围后逐项执行。</p>
+</blockquote>
+<hr />
+<h2>一、模型与算法层（学术含金量最高）</h2>
+<h3>1.1 A 矩阵时变性分析 ⭐⭐⭐</h3>
+<ul>
+<li><strong>现状</strong>：固定使用 2023 年 A 矩阵，冲击传导系数不变</li>
+<li><strong>方案</strong>：利用已有 2002-2023 共 8 张北京投入产出表，支持多年份对比——房地产乘数的时序演变（2002 vs 2012 vs 2023）本身即是研究结论</li>
+<li><strong>价值</strong>：答辩学术亮点；数据已在手（2017/2023 提取脚本已验证）</li>
+</ul>
+<h3>1.2 Ghosh 供给侧模型 ⭐⭐</h3>
+<ul>
+<li><strong>现状</strong>：仅有 Leontief 需求侧冲击 <code>dX = (I-A)⁻¹ dY</code></li>
+<li><strong>方案</strong>：新增 Ghosh 模型（供给侧 <code>X = V(I-A)⁻¹</code>），分析"水泥涨价"等成本推动型冲击，形成双模型架构</li>
+<li><strong>工作量</strong>：约 50 行代码，文献有现成方法</li>
+</ul>
+<h3>1.3 风险评分权重数据化 ⭐</h3>
+<ul>
+<li><strong>现状</strong>：四指标线性加权（收入 30% / 债务 30% / 现金流 20% / 需求 20%），权重手设</li>
+<li><strong>方案</strong>：换熵权法或逻辑回归确定权重；至少补权重敏感性分析</li>
+<li><strong>价值</strong>：答辩被问"为什么权重是 0.3"时有数据依据</li>
+</ul>
+<hr />
+<h2>二、后端架构层</h2>
+<h3>2.1 SQLite 持久化 ⭐⭐</h3>
+<ul>
+<li><strong>现状</strong>：<code>STATE = {"reports": {}, "uploads": {}}</code> 纯内存，服务重启即清空</li>
+<li><strong>方案</strong>：报告/上传记录落 SQLite</li>
+<li><strong>价值</strong>：约 2 小时工作量，消除"演示中途重启 → 历史全丢"的风险</li>
+</ul>
+<h3>2.2 检索结果重排（Rerank） ⭐</h3>
+<ul>
+<li><strong>现状</strong>：混合检索（MiniLM 语义 + bigram 关键词 RRF 融合）直接输出</li>
+<li><strong>方案</strong>：接入 bge-reranker 本地重排</li>
+<li><strong>代价</strong>：延迟增加 1-2 秒，需权衡</li>
+</ul>
+<h3>2.3 检索延迟优化 ⭐</h3>
+<ul>
+<li><strong>现状</strong>：单次查询 ~2.5s（8106 切片 bigram 全量扫描）</li>
+<li><strong>方案</strong>：① bigram 倒排索引（降至毫秒级）② 热门查询嵌入缓存</li>
+</ul>
+<h3>2.4 LLM 输出结构强约束 ⭐</h3>
+<ul>
+<li><strong>现状</strong>：正则提取 JSON，偶发解析失败（已有 <code>_enrich_report</code> 兜底）</li>
+<li><strong>方案</strong>：使用 <code>response_format: json_object</code> 强制 JSON 输出</li>
+</ul>
+<h3>2.5 并发保护（暂缓）</h3>
+<ul>
+<li>多用户同时提问存在状态竞争，单人演示无影响，暂不处理</li>
+</ul>
+<hr />
+<h2>三、数据层</h2>
+<h3>3.1 宏观月度序列 ⭐⭐</h3>
+<ul>
+<li><strong>现状</strong>：<code>macro_history.json</code> 仅 2015-2024 年度增速，历史对比图止于 2024</li>
+<li><strong>方案</strong>：补统计局月度数据（销售面积/新开工/70 城房价/水泥产量），支持"领先-滞后"交叉验证</li>
+</ul>
+<h3>3.2 案例库扩充 ⭐</h3>
+<ul>
+<li><strong>现状</strong>：仅 4 个案例（日本/美国/恒大/海南）</li>
+<li><strong>方案</strong>：补泰国 1997、香港 1997、西班牙 2008、温州 2011</li>
+</ul>
+<h3>3.3 债务率数据口径 ⭐</h3>
+<ul>
+<li><strong>现状</strong>：13 部门 debt_ratio 为经验手设值</li>
+<li><strong>方案</strong>：替换为统计局/上市公司行业均值，或明确标注"演示口径"</li>
+</ul>
+<hr />
+<h2>四、前端层</h2>
+<h3>4.1 流式输出 ⭐⭐⭐（演示体验差异最大）</h3>
+<ul>
+<li><strong>现状</strong>：提问后静默等待 10-30 秒，仅假动画占位</li>
+<li><strong>方案</strong>：LLM 改 SSE 流式，工具调用轨迹实时逐条显示（"正在检索知识库…""正在运行投入产出模型…"）</li>
+<li><strong>价值</strong>：评委观感从"等结果"变为"看 Agent 思考"，质变级提升；约半天工作量</li>
+</ul>
+<h3>4.2 图谱节点交互画像 ⭐⭐</h3>
+<ul>
+<li><strong>现状</strong>：节点仅有 tooltip 一行字</li>
+<li><strong>方案</strong>：点击弹出侧边卡——该行业 A 矩阵列、风险评分分项、关联案例</li>
+</ul>
+<h3>4.3 情景对比 ⭐</h3>
+<ul>
+<li><strong>现状</strong>：Dashboard 仅展示最新一次分析快照</li>
+<li><strong>方案</strong>：保存历次冲击分析（-10% / -15% / -20%），横向对比条形图</li>
+</ul>
+<h3>4.4 投影/窄屏适配 ⭐</h3>
+<ul>
+<li><strong>现状</strong>：未验证投影仪 4:3（1024×768）下的表现</li>
+<li><strong>方案</strong>：比赛前务必实测投影效果，必要时调整字号与图表布局</li>
+</ul>
+<hr />
+<h2>五、工程与演示杂项</h2>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>说明</th>
+<th>优先级</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>README 配图</td>
+<td>补架构图/界面截图/演示 GIF，改善第一印象</td>
+<td>⭐⭐</td>
+</tr>
+<tr>
+<td>一键启动 <code>start.bat</code></td>
+<td>双击同时拉起前后端，防演示手忙脚乱</td>
+<td>⭐⭐</td>
+</tr>
+<tr>
+<td>依赖版本锁定</td>
+<td>requirements.txt 未 pin 版本，他人安装可能不兼容</td>
+<td>⭐⭐</td>
+</tr>
+<tr>
+<td>单元测试</td>
+<td>现仅 smoke_test 冒烟脚本，无 pytest 覆盖</td>
+<td>⭐</td>
+</tr>
+<tr>
+<td>报告多模板</td>
+<td>政策类/数据类/冲击类问题用不同章节模板</td>
+<td>⭐</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>推荐执行顺序（比赛收益 / 工作量）</h2>
+<table>
+<thead>
+<tr>
+<th>批次</th>
+<th>内容</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td>4.1 流式输出</td>
+<td>演示体验质变</td>
+</tr>
+<tr>
+<td>②</td>
+<td>2.1 SQLite 持久化 + 一键启动 + 依赖锁定</td>
+<td>演示保底三件套</td>
+</tr>
+<tr>
+<td>③</td>
+<td>1.1 多年份乘数对比 + 4.3 情景对比图</td>
+<td>学术亮点，数据在手</td>
+</tr>
+<tr>
+<td>④</td>
+<td>3.1 宏观月度数据 + 3.2 案例扩充</td>
+<td>内容充实</td>
+</tr>
+<tr>
+<td>⑤</td>
+<td>1.2 Ghosh 模型 + 1.3 熵权法</td>
+<td>模型升维（时间允许再做）</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
