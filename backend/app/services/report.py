@@ -57,6 +57,19 @@ def build_markdown(report: dict) -> str:
     lines += ["\n## 3. Transmission Mechanism（传导机制）"]
     for i, step in enumerate(report.get("transmission_path", []), 1):
         lines.append(f"{i}. {step}")
+    # 传导三阶段预判
+    stages = (report.get("impact") or {}).get("transmission_stages") or {}
+    if stages.get("stages"):
+        lines += ["\n### 传导三阶段预判（六案例归纳框架）"]
+        for s in stages["stages"]:
+            lines.append(f"\n**{s['name']}**（{s['window']}，压力指数 {s['pressure']}/100）")
+            lines.append(f"- 机制：{s['mechanism']}")
+            lines.append(f"- 命中行业：{'、'.join(s['hit_industries'])}")
+            lines.append(f"- 验证指标：{'、'.join(s['verify_indicators'][:3])}")
+        rules = stages.get("cross_case_rules") or []
+        if rules:
+            lines.append("\n跨案例规律：")
+            lines += [f"- {r}" for r in rules]
     lines += ["\n## 4. Affected Industries（影响矩阵）", "\n" + _industries_md(report.get("affected_industries", []))]
     if report.get("similar_cases"):
         lines += ["\n### 历史对比"]

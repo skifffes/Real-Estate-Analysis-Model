@@ -239,6 +239,36 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* 传导三阶段预判（来自最近一次分析） */}
+      {data.transmission_stages?.stages?.length > 0 && (
+        <div className="card anim-fade-up lg:col-span-3">
+          <div className="section-label mb-3">传导三阶段预判（六案例归纳框架 · 最近分析：{data.updated_at || '-'}）</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {data.transmission_stages.stages.map((s, i) => {
+              const c = s.pressure >= 70 ? '#ef4444' : s.pressure >= 45 ? '#f97316' : '#22c55e'
+              return (
+                <div key={i} className="bg-slate-950/60 rounded-xl p-4 border border-slate-800/60">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-semibold text-slate-200">{i + 1}. {s.name}</span>
+                    <span className="font-mono font-bold" style={{ color: c }}>{s.pressure}</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-800 rounded-full mb-2.5 overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${s.pressure}%`, background: c }} />
+                  </div>
+                  <div className="text-[11px] text-slate-500 mb-2">{s.window}</div>
+                  <div className="text-xs text-slate-400 leading-5">{s.mechanism}</div>
+                  <div className="flex flex-wrap gap-1 mt-2.5">
+                    {s.hit_industries.map(h => (
+                      <span key={h} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-400 border border-slate-700/60">{h}</span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {data.industry_scores?.length > 0 && (
         <div className="card anim-fade-up lg:col-span-3">
           <div className="section-label mb-3">行业风险评分明细（收入30% + 债务30% + 现金流20% + 市场需求20%）</div>

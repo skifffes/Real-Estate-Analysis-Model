@@ -114,6 +114,10 @@ function _md(report) {
   }).join('\n')
   const scores = (report.industry_scores || []).map(s => `- **${s.industry}**：${s.risk_score ?? '—'}（${s.risk_level ?? '—'}）`).join('\n')
   const steps = (report.transmission_path || []).map((t, i) => `${i + 1}. ${t}`).join('\n')
+  const stages = (report.impact || {}).transmission_stages || {}
+  const stagesMd = stages.stages?.length ? '\n\n' + stages.stages.map(s =>
+    `**${s.name}**（${s.window}，压力 ${s.pressure}/100）—— ${s.mechanism}（命中：${s.hit_industries.join('、')}）`
+  ).join('\n\n') + (stages.cross_case_rules ? '\n\n> 跨案例规律：' + stages.cross_case_rules.join('；') : '') : ''
   const basis = (report.data_basis || []).map(d => `- ${d}`).join('\n')
   const cases = (report.similar_cases || []).map(c => `- **${c.title}**：${c.peak_impact ?? '详见历史案例库'}`).join('\n')
   const kpis = (report.key_indicators || []).map(k => `- ${k}`).join('\n')
@@ -130,7 +134,7 @@ ${report.summary}
 ${scores || '- ' + report.risk_level}
 
 ## 3. Transmission Mechanism（传导机制）
-${steps}
+${steps}${stagesMd}
 
 ## 4. Affected Industries（影响矩阵）
 

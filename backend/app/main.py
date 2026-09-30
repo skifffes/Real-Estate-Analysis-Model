@@ -31,6 +31,7 @@ def _default_dashboard() -> dict:
         "supply_chain": io.supply_chain_graph(),
         "historical_comparison": macro,
         "transmission_monthly": monthly,  # 真实月度序列（2021-10~2026-08）
+        "transmission_stages": {},        # 传导三阶段（有分析后填充）
         "updated_at": None,
     }
 
@@ -49,6 +50,7 @@ def _refresh_dashboard(report: dict):
     d["key_indicators"] = report.get("key_indicators", [])
     impact = report.get("impact")
     d["supply_chain"] = io.supply_chain_graph(impact)
+    d["transmission_stages"] = (impact or {}).get("transmission_stages", {})
     d["similar_cases"] = report.get("similar_cases", [])
     d["updated_at"] = report.get("created_at")
 
