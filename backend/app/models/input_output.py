@@ -72,7 +72,40 @@ def analyze_shock(shock_percent: float, direction: str = "下降",
         "total_output_change_pct": round(total_delta / float(X_BASE.sum()) * 100, 3),
         "real_estate_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("房地产")), 2),
         "construction_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("建筑业")), 2),
+        "transmission_stages": _stage_forecast(rows, shock_percent, direction),
     }
+
+
+def _stage_forecast(rows: list, shock_pct: float, direction: str) -> dict:
+    """传导三阶段预判：把冲击映射到六案例归纳的阶段框架（素材文档第四章）"""
+    import json as _json
+    from ..config import DATA_DIR as _DD
+    try:
+        fw = _json.loads((_DD / "transmission_stages.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    impact_by_ind = {r["industry"]: r["impact_pct"] for r in rows}
+    severity = min(abs(shock_pct) / 30.0, 1.0)  # 冲击幅度 → 严重度 0~1
+    stages = []
+    for st in fw["stages"]:
+        # 各阶段命中行业 × 该行业受冲击幅度 → 阶段压力分（0~100）
+        hits = []
+        for ind in st["hit_industries"]:
+            p = impact_by_ind.get(ind)
+            if p is not None:
+                hits.append({"industry": ind, "impact_pct": p})
+        pressure = min(100, round(severity * st["hit_hardness"] / 3 * 100
+                                  + sum(abs(h["impact_pct"]) for h in hits) / max(len(hits), 1) * 3))
+        stages.append({
+            "name": st["name"], "window": st["window"],
+            "mechanism": st["mechanism"], "channels": st["channels"],
+            "hit_industries": st["hit_industries"],
+            "verify_indicators": st["verify_indicators"],
+            "case_evidence": st["case_evidence"],
+            "pressure": pressure,
+        })
+    return {"framework": fw["framework"], "source": fw["source"],
+            "cross_case_rules": fw["cross_case_rules"], "stages": stages}
 
 
 def supply_chain_graph(impact: dict | None = None) -> dict:

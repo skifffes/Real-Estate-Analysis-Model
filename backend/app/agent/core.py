@@ -247,6 +247,13 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
             "下游承压：家电、家具等后周期消费需求下滑（收入-消费渠道）",
             "金融传导：房企信用风险暴露，银行敞口与抵押品价值承压（金融加速器渠道）",
         ]
+        # 传导三阶段预判（六案例归纳框架，素材文档第四章）
+        stages = impact.get("transmission_stages", {})
+        if stages:
+            st_desc = " → ".join(
+                f"{s['name']}({s['window'].split(' ')[-2]}{s['window'].split(' ')[-1]}，压力{s['pressure']})"
+                for s in stages.get("stages", []))
+            transmission.insert(0, f"【三阶段传导预判】{st_desc}")
         affected = [
             {"industry": r["industry"], "impact_pct": r["impact_pct"],
              "delta_output_yi": r["delta_output_yi"],

@@ -230,6 +230,7 @@ export default function Dashboard() {
               ['PPI同比', 'PPI', '#94a3b8'],
             ].map(([key, name, color]) => ({
               name, type: 'line', smooth: true, symbol: 'none',
+              connectNulls: true,  // 数据断点时连线不断开
               data: Object.values(data.transmission_monthly.series[key] || {}),
               lineStyle: { color, width: name === '新开工面积' ? 2.5 : 1.5 },
               itemStyle: { color },

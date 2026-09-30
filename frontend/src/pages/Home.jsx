@@ -203,7 +203,7 @@ export default function Home() {
 
 function ReportView({ report }) {
   const { summary, risk_level, risk_score, affected_industries, industry_scores,
-          transmission_path, model_basis, data_basis, key_indicators, similar_cases, tool_trace, agent_mode } = report
+          transmission_path, model_basis, data_basis, key_indicators, similar_cases, tool_trace, agent_mode, impact } = report
   const color = riskColor(risk_level)
   const impactChart = affected_industries?.length ? {
     tooltip: { trigger: 'axis' },
@@ -254,6 +254,40 @@ function ReportView({ report }) {
                 <span className="text-slate-300 leading-6">{t}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {impact?.transmission_stages?.stages?.length > 0 && (
+        <div>
+          <div className="section-label mb-3">传导三阶段预判（六案例归纳框架）</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {impact.transmission_stages.stages.map((s, i) => {
+              const c = s.pressure >= 70 ? '#ef4444' : s.pressure >= 45 ? '#f97316' : '#22c55e'
+              return (
+                <div key={i} className="bg-slate-950/60 rounded-lg p-3.5 border border-slate-800/60 relative overflow-hidden">
+                  <div className="absolute inset-x-0 bottom-0 h-1" style={{ background: c, opacity: 0.7, width: `${s.pressure}%` }} />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm font-semibold text-slate-200">{i + 1}. {s.name}</span>
+                    <span className="text-xs font-mono font-bold" style={{ color: c }}>{s.pressure}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mb-2">{s.window}</div>
+                  <div className="text-xs text-slate-400 leading-5 mb-2">{s.mechanism}</div>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {s.hit_industries.map(h => (
+                      <span key={h} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-400 border border-slate-700/60">{h}</span>
+                    ))}
+                  </div>
+                  <details className="text-[11px] text-slate-500">
+                    <summary className="cursor-pointer hover:text-slate-400">验证指标与案例证据</summary>
+                    <div className="mt-1.5 space-y-1">
+                      <div>盯：{s.verify_indicators.slice(0, 3).join('、')}</div>
+                      <div className="text-slate-600">{s.case_evidence?.slice(0, 60)}…</div>
+                    </div>
+                  </details>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
