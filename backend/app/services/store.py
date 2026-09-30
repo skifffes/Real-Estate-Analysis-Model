@@ -39,6 +39,16 @@ def load_reports() -> dict:
     return {r["report_id"]: r for r in (json.loads(x[0]) for x in rows)}
 
 
+def delete_report(report_id: str):
+    with _conn() as c:
+        c.execute("DELETE FROM reports WHERE report_id=?", (report_id,))
+
+
+def clear_reports():
+    with _conn() as c:
+        c.execute("DELETE FROM reports")
+
+
 # ---------- uploads ----------
 def save_upload(fid: str, filename: str, summary: dict):
     with _conn() as c:

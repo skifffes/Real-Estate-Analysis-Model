@@ -1,16 +1,31 @@
 import { useEffect, useState } from 'react'
 import { marked } from 'marked'
-import { listReports, getReport } from '../api.js'
+import { listReports, getReport, deleteReport, deleteAllReports } from '../api.js'
 
 export default function Reports() {
   const [list, setList] = useState([])
   const [selected, setSelected] = useState(null)
 
-  useEffect(() => { listReports().then(r => setList(r.items)).catch(() => {}) }, [])
+  const load = () => listReports().then(r => setList(r.items)).catch(() => {})
+  useEffect(() => { load() }, [])
 
   const open = async (rid) => {
     const r = await getReport(rid).catch(() => null)
     if (r) setSelected(r)
+  }
+
+  const del = async (rid) => {
+    if (!confirm('删除这份报告？')) return
+    await deleteReport(rid).catch(() => {})
+    if (selected?.report_id === rid) setSelected(null)
+    load()
+  }
+
+  const delAll = async () => {
+    if (!confirm(`确定清空全部 ${list.length} 份报告？此操作不可恢复。`)) return
+    await deleteAllReports().catch(() => {})
+    setSelected(null)
+    load()
   }
 
   return (
@@ -20,6 +35,12 @@ export default function Reports() {
           <h1 className="text-xl font-bold tracking-tight">报告中心</h1>
           <p className="text-xs text-slate-500 mt-1">结构化金融分析报告（Markdown 持久化 / 浏览器导出 PDF）</p>
         </div>
+        {list.length > 0 && (
+          <button onClick={delAll}
+            className="text-xs px-3.5 py-2 rounded-lg border border-red-900/60 text-red-400 hover:bg-red-950/40 hover:border-red-700 transition-colors">
+            清空全部（{list.length}）
+          </button>
+        )}
       </header>
 
       {list.length === 0 ? (
@@ -28,15 +49,21 @@ export default function Reports() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="space-y-2 no-print">
             {list.map((r, i) => (
-              <button key={r.report_id} onClick={() => open(r.report_id)}
-                className={`w-full text-left card card-hover !p-3.5 anim-fade-up ${
+              <div key={r.report_id}
+                className={`group relative card card-hover !p-3.5 anim-fade-up cursor-pointer transition-colors ${
                   selected?.report_id === r.report_id ? '!border-blue-500/60 shadow-[0_0_16px_rgba(59,130,246,0.15)]' : ''}`}
-                style={{ animationDelay: `${i * 40}ms` }}>
-                <div className="text-sm text-slate-200 truncate">{r.question || '未命名分析'}</div>
+                style={{ animationDelay: `${i * 40}ms` }}
+                onClick={() => open(r.report_id)}>
+                <div className="text-sm text-slate-200 truncate pr-6">{r.question || '未命名分析'}</div>
                 <div className="text-xs text-slate-500 mt-1.5">
                   风险 <span className="text-slate-300 font-medium">{r.risk_score}</span> · {r.risk_level} · {r.created_at}
                 </div>
-              </button>
+                <button onClick={e => { e.stopPropagation(); del(r.report_id) }}
+                  title="删除此报告"
+                  className="absolute top-2.5 right-2.5 w-6 h-6 rounded-md flex items-center justify-center text-slate-600 hover:text-red-400 hover:bg-red-950/50 opacity-0 group-hover:opacity-100 transition-all text-sm leading-none">
+                  ✕
+                </button>
+              </div>
             ))}
           </div>
           <div className="lg:col-span-3 card report-body" id="reportArea">

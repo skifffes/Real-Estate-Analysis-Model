@@ -11,6 +11,8 @@ export const uploadFile = (file) => {
 export const getDashboard = () => api.get('/api/dashboard').then(r => r.data)
 export const listReports = () => api.get('/api/reports').then(r => r.data)
 export const getReport = (rid) => api.get(`/api/report/${rid}`).then(r => r.data)
+export const deleteReport = (rid) => api.delete(`/api/report/${rid}`).then(r => r.data)
+export const deleteAllReports = () => api.delete('/api/reports').then(r => r.data)
 export const kbSearch = (q) => api.get('/api/kb/search', { params: { q } }).then(r => r.data)
 export const getHealth = () => api.get('/api/health').then(r => r.data)
 

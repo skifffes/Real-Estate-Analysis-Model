@@ -19,6 +19,31 @@ export default function Home() {
 
   useEffect(() => { getHealth().then(setHealth).catch(() => {}) }, [])
 
+  // 删除单条对话（AI消息含报告时连报告一起删；user+ai 成对删除）
+  const delMsg = (i) => {
+    const m = messages[i]
+    if (m?.report?.report_id) {
+      fetch(`http://localhost:8000/api/report/${m.report.report_id}`, { method: 'DELETE' }).catch(() => {})
+    }
+    setMessages(msgs => {
+      const out = [...msgs]
+      let a = i, b = i
+      if (m.role === 'user' && out[i + 1]?.role === 'ai') b = i + 1        // user → 连同紧随的ai
+      if (m.role === 'ai' && out[i - 1]?.role === 'user') a = i - 1        // ai → 连同紧邻的user
+      out.splice(a, b - a + 1)
+      return out
+    })
+  }
+
+  const clearAll = () => {
+    if (!confirm(`清空全部 ${messages.length} 条对话？（已生成的报告仍可在报告中心删除）`)) return
+    // 批量删除关联报告
+    messages.filter(m => m.report?.report_id).forEach(m => {
+      fetch(`http://localhost:8000/api/report/${m.report.report_id}`, { method: 'DELETE' }).catch(() => {})
+    })
+    setMessages([])
+  }
+
   const send = async (q) => {
     const question = q || input
     if (!question.trim() || loading) return
@@ -79,10 +104,18 @@ export default function Home() {
             </p>
           </div>
         </div>
-        <Link to="/dashboard"
-          className="text-sm px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:border-blue-500/60 hover:text-blue-300 hover:bg-blue-600/10 transition-all no-print">
-          查看 Dashboard →
-        </Link>
+        <div className="flex items-center gap-3">
+          {messages.length > 0 && (
+            <button onClick={clearAll}
+              className="text-xs px-3 py-2 rounded-lg border border-red-900/60 text-red-400 hover:bg-red-950/40 hover:border-red-700 transition-colors no-print">
+              清空对话（{messages.length}）
+            </button>
+          )}
+          <Link to="/dashboard"
+            className="text-sm px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:border-blue-500/60 hover:text-blue-300 hover:bg-blue-600/10 transition-all no-print">
+            查看 Dashboard →
+          </Link>
+        </div>
       </header>
 
       <div className="flex-1 overflow-auto px-8 py-6">
@@ -121,13 +154,23 @@ export default function Home() {
           )}
 
           {messages.map((m, i) => m.role === 'user' ? (
-            <div key={i} className="flex justify-end anim-fade-up">
+            <div key={i} className="group relative flex justify-end anim-fade-up">
               <div className="bg-gradient-to-br from-blue-600 to-blue-500 rounded-2xl rounded-br-sm px-4 py-2.5 max-w-xl text-sm shadow-lg shadow-blue-900/30">
                 {m.text}
               </div>
+              <button onClick={() => delMsg(i)} title="删除此对话"
+                className="absolute -left-7 top-1/2 -translate-y-1/2 w-5 h-5 rounded flex items-center justify-center text-slate-700 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-all">
+                ✕
+              </button>
             </div>
           ) : (
-            <div key={i} className="flex flex-col items-start gap-3 w-full anim-fade-up">
+            <div key={i} className="group relative flex flex-col items-start gap-3 w-full anim-fade-up">
+              {!m.streaming && (
+                <button onClick={() => delMsg(i)} title="删除此对话"
+                  className="absolute -left-7 top-1 w-5 h-5 rounded flex items-center justify-center text-slate-700 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-all z-10">
+                  ✕
+                </button>
+              )}
               {/* 流式：实时工具调用轨迹 */}
               {m.streaming && m.events?.length > 0 && (
                 <div className="card max-w-3xl w-full py-4 space-y-2">

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from .config import DATA_DIR, UPLOAD_DIR
+from .config import DATA_DIR, UPLOAD_DIR, REPORTS_DIR
 from .knowledge import rag
 from .agent.core import RiskAgent
 from .agent.tools import execute_tool
@@ -252,6 +252,28 @@ def get_report(rid: str):
     if rid not in STATE["reports"]:
         raise HTTPException(404, "报告不存在（服务重启后内存态清空，Markdown 文件仍在 backend/reports/）")
     return STATE["reports"][rid]
+
+
+# ---------- 报告删除 ----------
+@app.delete("/api/report/{rid}")
+def delete_report(rid: str):
+    if rid not in STATE["reports"]:
+        raise HTTPException(404, "报告不存在")
+    STATE["reports"].pop(rid)
+    store.delete_report(rid)
+    (REPORTS_DIR / f"{rid}.md").unlink(missing_ok=True)
+    return {"deleted": rid}
+
+
+@app.delete("/api/reports")
+def delete_all_reports():
+    """清空全部报告（内存 + SQLite + Markdown 文件）"""
+    ids = list(STATE["reports"].keys())
+    for rid in ids:
+        (REPORTS_DIR / f"{rid}.md").unlink(missing_ok=True)
+    STATE["reports"].clear()
+    store.clear_reports()
+    return {"deleted_count": len(ids)}
 
 
 @app.get("/api/report/{rid}/download")
