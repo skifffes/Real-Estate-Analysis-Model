@@ -1,0 +1,257 @@
+% !TEX program = xelatex
+\documentclass[12pt, a4paper]{ctexart}
+
+% ======================== 宏包 ========================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}          % 三线表
+\usepackage{longtable}         % 跨页表格
+\usepackage{listings}          % 代码块
+\usepackage{xcolor}           % 颜色
+\usepackage{graphicx}
+\usepackage{hyperref}          % 超链接与目录
+\usepackage{enumitem}
+\usepackage{fancyhdr}          % 页眉页脚
+\usepackage{caption}
+\usepackage{amsmath}           % 数学公式（\text 等命令）
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, urlcolor=blue!70!black,
+            pdftitle={房地产产业链风险分析智能体——技术实现报告}}
+
+% ======================== 样式 ========================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small 房地产产业链风险分析智能体}
+\fancyhead[R]{\small 技术实现报告}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{RGB}{245,245,248}
+\definecolor{codekw}{RGB}{0,90,160}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw},
+  commentstyle=\color{gray},
+  breaklines=true,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray!40},
+  xleftmargin=1em,
+}
+
+\captionsetup{font=small, labelfont=bf}
+
+\title{%
+  \vspace{-1cm}
+  {\Large 房地产产业链风险分析智能体}\\[0.3em]
+  {\LARGE\bfseries 技术实现报告}\\[0.5em]
+  {\small\textit{Real Estate Supply Chain Risk Intelligence Agent}}}
+\author{技术组}
+\date{2026年10月}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+本报告介绍``房地产产业链风险分析智能体''的技术实现，涵盖数据资产、后端架构、前端架构与部署方案四个部分。系统以大语言模型（LLM）智能体为调度核心，集成列昂惕夫（Leontief）需求侧模型与 Ghosh 供给侧模型的双投入产出引擎、四指标加权风险评分模型、混合检索知识库（RAG）与结构化案例库，输出含传导三阶段预判的结构化风险分析报告。系统具备双模式降级、数字与文字分离等可靠性设计，支持完全离线运行。经济规律的研究结论由金融方向成员另行完成，不在本报告范围内。
+\end{abstract}
+
+\newpage
+\tableofcontents
+\newpage
+
+% =====================================================
+\section{系统总览}
+
+系统采用前后端分离架构：前端基于 React 18 实现流式问答与可视化仪表盘，后端基于 Python FastAPI 提供 18 个 REST 接口与 SSE 流式通道。核心设计原则为\textbf{``数字与文字分离''}——所有测算数值由确定性模型引擎计算，大语言模型仅负责工具调度与结果解读，从根本上杜绝幻觉数字。
+
+\begin{table}[htbp]
+\centering
+\caption{技术栈总览}
+\begin{tabular}{@{}lll@{}}
+\toprule
+层 & 技术 & 关键组件 \\
+\midrule
+前端 & React 18 + Vite + Tailwind & ECharts 可视化、SSE 流式解析 \\
+后端 & Python FastAPI & Agent 核心、双模型引擎、SQLite 持久化 \\
+检索 & Chroma 向量库 & MiniLM 语义 + bigram 关键词混合检索 \\
+数据 & NumPy / pandas & 投入产出矩阵、统计画像 \\
+推理 & LLM（OpenAI 兼容协议） & Function Calling，可降级规则引擎 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================
+\section{数据资产}
+
+\subsection{模型计算数据}
+
+后端计算引擎直接读取的结构化数据如表~\ref{tab:modeldata} 所示。
+
+\begin{table}[htbp]
+\centering
+\caption{模型数据资产}
+\label{tab:modeldata}
+\small
+\begin{tabular}{@{}p{3.2cm}p{3.8cm}p{6.5cm}@{}}
+\toprule
+数据 & 来源 & 用途 \\
+\midrule
+投入产出 $A$ 矩阵 & 北京市 2023 年投入产出表（42 部门基本表，当年生产者价格），聚合为 13 部门 & Leontief 需求侧冲击测算，$X=(I-A)^{-1}Y$ \\
+多年份矩阵 & 北京 2012/2017/2023 三张表 & 影响力乘数的时序演变分析 \\
+行业负债率 & 房地产：国资委全行业口径（2024 年 67.8\%）；其余：申万三级行业近 5 年均值 & 风险评分模型的债务分项 \\
+宏观月度序列 & Wind/国家统计局，2021-10 至 2026-08，9 个序列 & 传导验证图、行业画像 \\
+财务长序列 & 国资委口径，2000--2024 年度 & 行业风险历史校准 \\
+三阶段框架 & 需求侧：六出险房企案例归纳；供给侧：成本推动逻辑 & 冲击分析的阶段化预判 \\
+案例库 & 9 个结构化案例（国际 3 + 房企 6） & 案例检索工具 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+其中投入产出矩阵的提取流程完全可复现：官方 42 部门流量表经部门聚合映射后，按
+\[
+A_{ij} = \frac{\text{聚合中间流量}_{ij}}{\text{聚合总投入}_j}
+\]
+计算直接消耗系数（列归一化），提取脚本位于 \texttt{testdata/extract\_io\_2023.py}。
+
+\subsection{知识库语料}
+
+知识库（RAG 检索语料）由 67 篇文档构成，切片后形成 8100 余个向量：
+
+\begin{itemize}[nosep]
+  \item 期刊论文 42 篇（房地产产业链、投入产出、风险溢出主题）；
+  \item 券商深度研报 2 篇（中泰国际、东吴证券）；
+  \item 传导机制分析文档 2 篇（含 8.2 万字素材汇编，六房企案例来源）；
+  \item 北京市投入产出表系列数据文本（2002--2023 各年份）；
+  \item 自建核心文档 6 篇（模型原理、产业链结构、政策摘要、案例综述、监测指标、传导机制）。
+\end{itemize}
+
+% =====================================================
+\section{后端架构}
+
+\subsection{分层结构}
+
+\begin{lstlisting}
+backend/app/
+|-- main.py            FastAPI 入口：18 个接口 + SSE + 生命周期
+|-- agent/
+|   |-- core.py        Agent 核心：LLM 循环 + 规则引擎降级
+|   `-- tools.py       7 个工具 Schema + 执行分发
+|-- knowledge/
+|   |-- rag.py         混合检索（MiniLM + bigram，RRF 融合）
+|   `-- cases.py       案例相似度检索
+|-- models/
+|   |-- input_output.py  Leontief + Ghosh 双模型 + 三阶段预判
+|   `-- risk.py        四指标加权风险评分
+`-- services/
+    |-- store.py       SQLite 持久化（WAL，重启恢复）
+    |-- report.py      Markdown 报告生成（六章结构）
+    `-- upload.py      CSV/Excel 解析 + 指标识别
+\end{lstlisting}
+
+\subsection{Agent 工具层}
+
+Agent 通过 OpenAI Function Calling 协议调度 7 个工具，由 LLM 根据问题语义自主路由（表~\ref{tab:tools}）。
+
+\begin{table}[htbp]
+\centering
+\caption{Agent 工具清单}
+\label{tab:tools}
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+工具 & 引擎 & 说明 \\
+\midrule
+search\_knowledge\_base & 混合检索 & 回答金融问题前强制调用 \\
+analyze\_industry\_chain\_impact & Leontief & 需求侧冲击：影响矩阵、直接/间接效应分解、乘数 \\
+analyze\_supply\_shock & Ghosh & 供给侧冲击：成本推动传导，``减产/涨价''类问题自动路由 \\
+compute\_risk\_score & 加权模型 & 行业风险评分 0--100 \\
+retrieve\_similar\_cases & 案例库 & 结构化案例检索（触发路径加权） \\
+analyze\_uploaded\_data & pandas & 用户上传数据融合分析 \\
+get\_dashboard\_data & --- & 仪表盘数据读取 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{双模型引擎}
+
+系统同时实现需求侧与供给侧两类投入产出冲击模型，二者互补：
+
+\begin{itemize}[nosep]
+  \item \textbf{Leontief 需求侧}：$\Delta X = (I-A)^{-1}\Delta Y$，最终需求（投资/销售）变动向生产的传导，适用于房地产类冲击；
+  \item \textbf{Ghosh 供给侧}：$\Delta X = \Delta V \cdot (I-A)^{-1}$，初始投入（供给）变动向下游的传导，适用于原材料减产/涨价类冲击。
+\end{itemize}
+
+两类模型各自配套专属的三阶段传导预判框架（需求侧为六案例归纳框架，供给侧为成本推动框架），并映射冲击幅度与行业命中情况至阶段压力指数（0--100）。
+
+\subsection{可靠性设计}
+
+为保障演示环境的稳定性，系统实现五层防御：
+
+\begin{enumerate}[nosep]
+  \item \textbf{双模式降级}：LLM 不可用或输出解析失败时自动切换规则引擎，全功能保持；
+  \item \textbf{数字与文字分离}：所有数值由模型引擎确定性计算，LLM 仅撰写解读文本；
+  \item \textbf{字段兜底}：无论 LLM 输出何种结构，影响矩阵、评分明细、三阶段、案例等字段均由 \texttt{\_enrich\_report} 确定性补齐；
+  \item \textbf{检索三级降级}：MiniLM 语义 $\to$ bigram 词袋 $\to$ 纯关键词；
+  \item \textbf{持久化}：报告与上传记录落 SQLite（WAL 模式），服务重启零丢失。
+\end{enumerate}
+
+% =====================================================
+\section{前端架构}
+
+\subsection{页面结构}
+
+前端含四个页面：智能问答（SSE 流式轨迹 + 结构化报告卡 + 对话管理）、风险仪表盘（九个可视化模块）、数据上传（拖拽解析 + 统计画像 + 文件管理）、报告中心（Markdown 渲染 + PDF 导出 + 删除）。
+
+\subsection{仪表盘可视化模块}
+
+\begin{table}[htbp]
+\centering
+\caption{Dashboard 模块与数据源}
+\begin{tabular}{@{}lll@{}}
+\toprule
+模块 & 图表类型 & 数据源 \\
+\midrule
+综合风险评分 & 仪表盘 & 风险评分模型 \\
+行业影响 & 条形图（双模型徽章标注） & Leontief / Ghosh \\
+产业链图谱 & 力导向图（点击弹画像卡） & $A$ 矩阵 \\
+历史对比 & 折线图 & 年度宏观序列 \\
+传导验证 & 五线月度折线（真实数据） & macro\_monthly \\
+三阶段预判 & 三栏压力卡 & 传导框架 \\
+案例对标 / 关注指标 / 评分明细 & 卡片 & Agent 输出 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{关键技术实现}
+
+\begin{itemize}[nosep]
+  \item \textbf{SSE 流式}：\texttt{fetch + ReadableStream} 逐行解析，工具调用实时显示``执行中 $\to$ 完成''状态；
+  \item \textbf{图谱防抖}：初始隐藏、力学收敛后淡入（React StrictMode 兼容），节点碰撞半径防止标签重叠；
+  \item \textbf{节点画像}：点击图谱节点展示该行业消耗结构、乘数、负债率口径与最新月度数据；
+  \item \textbf{PDF 导出}：打印样式解除滚动容器限制，长报告正确分页；
+  \item \textbf{数据断点处理}：对统计发布制度造成的缺失月份做邻月插补，并启用 \texttt{connectNulls} 保证折线连续。
+\end{itemize}
+
+% =====================================================
+\section{部署与版本}
+
+系统支持一键启动（\texttt{start.bat}/\texttt{stop.bat}），依赖版本已锁定。LLM 为可选配置：填入任意 OpenAI 兼容 API 即启用真实 Function Calling，不配置则规则引擎全功能离线运行。
+
+\begin{table}[htbp]
+\centering
+\caption{版本演进}
+\begin{tabular}{@{}ll@{}}
+\toprule
+版本 & 内容 \\
+\midrule
+初始 & 系统骨架（Agent + RAG + 模型 + 四页面） \\
+v1.1.0 & 真实数据版（北京 2023 矩阵 + 61 篇文献知识库） \\
+v1.2.0 & 体验升级（SSE 流式 + SQLite 持久化 + 节点画像） \\
+v1.2.1 & 演示保底（一键启动 + 依赖锁定） \\
+后续 & 案例量化 / 三阶段框架 / 双模型 / 一致化与容错 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}
