@@ -16,6 +16,9 @@ backend/reports/
 backend/app/data/app.db*
 *.log
 
+# 演示录屏等大文件不入库
+*.mp4
+
 # CodeBuddy IDE 数据
 .codebuddy/
 

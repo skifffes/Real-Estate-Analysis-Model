@@ -101,6 +101,18 @@ class RiskAgent:
             msg = resp.choices[0].message
             if not msg.tool_calls:
                 report = self._parse_report(msg.content or "")
+                if report is None:
+                    # LLM 输出不可解析 → 规则引擎生成完整结构化报告（数字有保证），LLM 原文作参考附注
+                    llm_raw = (msg.content or "").strip()
+                    report, trace = self._rule_run(question, ctx)
+                    for t in trace:
+                        yield {"type": "tool", "status": "done", **t}
+                    report["summary"] = str(report.get("summary", "")) + (
+                        "｜注：LLM 最终输出未能解析为结构化报告（已回退结构化模板），"
+                        "LLM 分析要点摘录：" + llm_raw[:260] + "…")
+                    report = self._enrich_report(report, last_impact, last_cases)
+                    yield {"type": "final", "report": report}
+                    return
                 report = self._enrich_report(report, last_impact, last_cases)
                 # 保险：问题要求结合上传数据但 LLM 未调用工具 → 直接融合数据摘要
                 if ctx.get("uploads") and any(k in question for k in ("上传", "数据文件")):
@@ -143,6 +155,14 @@ class RiskAgent:
             # LLM 未输出 affected_industries 时，直接取模型测算的影响矩阵前5行业
             if not report.get("affected_industries"):
                 report["affected_industries"] = impact.get("impact_matrix", [])[:5]
+            # 统一补齐风险评分（模型行无评分字段）
+            for row in report.get("affected_industries", []):
+                if not isinstance(row.get("risk_score"), (int, float)):
+                    m = matrix.get(row.get("industry"))
+                    debt = (m or {}).get("debt_ratio", 55)
+                    pct = row.get("impact_pct") or (m or {}).get("impact_pct", 0)
+                    row["risk_score"] = risk_model.industry_risk_from_impact(
+                        row.get("industry", ""), pct, debt)["risk_score"]
             for row in report.get("affected_industries", []):
                 m = matrix.get(row.get("industry"))
                 if m:
@@ -159,14 +179,34 @@ class RiskAgent:
         return report
 
     @staticmethod
-    def _parse_report(content: str) -> dict:
-        m = re.search(r"\{[\s\S]*\}", content)
+    def _parse_report(content: str) -> dict | None:
+        """解析 LLM 最终输出为结构化报告。
+        失败返回 None（调用方回退规则引擎生成完整报告，而非裸文本）。"""
+        if not content or not content.strip():
+            return None
+        text = content.strip()
+        # 剥离 markdown 代码围栏
+        m = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
         if m:
-            try:
-                return json.loads(m.group(0))
-            except json.JSONDecodeError:
-                pass
-        return {"summary": content, "risk_level": "中", "data_basis": []}
+            text = m.group(1).strip()
+        m = re.search(r"\{[\s\S]*\}", text)
+        if not m:
+            return None
+        raw = m.group(0)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+        # 常见错误修复：尾逗号、全角引号包裹的键值、控制字符
+        repaired = raw
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)               # 尾逗号
+        repaired = repaired.replace(""", '"').replace(""", '"')      # 中文引号
+        repaired = repaired.replace(""", '"').replace(""", "'")      # 全角单引号
+        repaired = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", repaired)  # 控制字符
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            return None  # 不可修复 → 调用方回退规则引擎
 
     # ---------------- 规则引擎路径（无 LLM 时的确定性分析流水线） ----------------
     def _rule_run(self, question: str, ctx: dict) -> tuple[dict, list]:

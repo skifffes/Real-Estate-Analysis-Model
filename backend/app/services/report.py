@@ -43,13 +43,15 @@ def _industries_md(rows: list[dict]) -> str:
 
 
 def build_markdown(report: dict) -> str:
+    rs = report.get("risk_score")
+    rs_s = f"{rs}" if isinstance(rs, (int, float)) else "—"
     lines = [
         "# 房地产产业链风险分析报告",
-        f"\n> 分析问题：**{report.get('question', '')}**  \n> 综合风险评分：**{report.get('risk_score', '-')} / 100（{report.get('risk_level', '')}）**  \n> 生成时间：{report.get('created_at', '')}",
+        f"\n> 分析问题：**{report.get('question', '')}**  \n> 综合风险评分：**{rs_s} / 100（{report.get('risk_level', '—')}）**  \n> 生成时间：{report.get('created_at', '')}",
         "\n## 1. Executive Summary",
         "\n" + report.get("summary", ""),
         "\n## 2. Risk Assessment",
-        f"\n- 综合风险评分：**{report.get('risk_score')}**\n- 风险等级：**{report.get('risk_level')}**",
+        f"\n- 综合风险评分：**{rs_s}**\n- 风险等级：**{report.get('risk_level', '—')}**",
         "\n### 行业风险评分（多指标加权模型）",
     ]
     for s in report.get("industry_scores", []):
