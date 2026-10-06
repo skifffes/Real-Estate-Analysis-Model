@@ -38,13 +38,13 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "analyze_supply_shock",
-            "description": "基于Ghosh供给侧模型 ΔX=ΔV·(I-A)^(-1)，测算某行业供给收缩/成本上升（如钢铁减产、水泥涨价）对全行业产出的影响。适用于'减产/涨价/供给收缩/成本上升'类问题。",
+            "description": "基于Ghosh供给侧模型（标准口径 ΔX=ΔV·(I-B)⁻¹，B=D⁻¹Z 为供给分配系数矩阵），测算某行业初始投入/增加值收缩对全行业产出的影响。适用于'初始投入收缩/资源供给收缩/减产'等数量型供给冲击问题。注意：价格/成本冲击（如'涨价'）属价格效应，本工具不做精确量化，仅作定性提示。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "sector": {"type": "string", "description": "冲击行业，如'钢铁'、'建材'、'电力热力'"},
-                    "shock_percent": {"type": "number", "description": "供给变动幅度百分比，正数"},
-                    "direction": {"type": "string", "enum": ["下降", "上升"], "description": "供给变动方向"},
+                    "shock_percent": {"type": "number", "description": "初始投入变动幅度百分比，正数"},
+                    "direction": {"type": "string", "enum": ["下降", "上升"], "description": "初始投入变动方向"},
                 },
                 "required": ["sector", "shock_percent"],
             },

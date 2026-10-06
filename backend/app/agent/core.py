@@ -305,12 +305,17 @@ class RiskAgent:
 
 
 # ---------------- 情景解析 ----------------
-_SUPPLY_KWS = ("减产", "涨价", "供给收缩", "供给下降", "停产", "限产", "成本上升", "原材料")
+# 数量型供给冲击关键词（Ghosh 模型的适用域）；"涨价"属价格效应，不做精确量化
+_SUPPLY_KWS = ("减产", "供给收缩", "供给下降", "停产", "限产", "供给减少")
+_PRICE_KWS = ("涨价", "价格上升", "价格上涨", "成本上升")  # 价格/成本冲击 → 定性提示，不进Ghosh数量模型
 _DEMAND_BYPASS = ("房地产", "楼市", "房价", "销售", "投资", "需求")
 
 
 def _is_supply_side(q: str) -> bool:
-    """判别供给侧冲击：含减产/涨价等词，且冲击主体非房地产类需求侧词"""
+    """判别供给侧冲击：含数量型供给词（减产/限产等），且主体非房地产类需求侧词。
+    价格类词（涨价等）单独识别为价格效应提示，不进入 Ghosh 数量测算。"""
+    if any(k in q for k in _PRICE_KWS):
+        return False
     if not any(k in q for k in _SUPPLY_KWS):
         return False
     return not any(k in q for k in _DEMAND_BYPASS)
@@ -351,9 +356,11 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
                 f"与需求侧冲击（Leontief）形成互补：本情景属于成本推动型。"
                 f"注意：地区表中间使用含调入因素，结果应解读为投入需求/产业关联压力的情景测算。"
             )
-            model_basis = (f"Ghosh供给侧模型（标准口径）ΔX=ΔV·(I-B)^(-1)，供给分配矩阵 B=D⁻¹Z 按行归一化；"
+            model_basis = (f"Ghosh供给侧模型（标准口径）ΔX=ΔV·(I-B)^(-1)，供给分配系数按卖方部门总产出系数化"
+                           f"（B=D⁻¹Z，与A为相似矩阵，谱半径相同、数值稳定可解）；"
                            f"以{impact['scenario']}模拟初始投入变动，供给推动乘数 {impact.get('supply_multiplier')}。"
-                           f"口径说明：地区表中间使用含调入，B反映北京经济体对该部门产品的中间使用结构")
+                           f"口径说明：地区表中间使用含跨地区调入/进口，B反映各下游部门对该产品的"
+                           f"中间使用暴露强度，结果应解读为供给侧投入压力沿产业链传导的情景测算")
             transmission = [
                 f"「{impact['scenario'].split('供给侧')[0]}」供给收缩，初始投入（增加值）直接减少",
                 "中间投入供给缺口出现：依赖该行业作为原材料的部门生产受阻",

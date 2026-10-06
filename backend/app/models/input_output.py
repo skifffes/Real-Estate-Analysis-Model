@@ -121,15 +121,15 @@ def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str =
 
     口径提示：地区投入产出表的中间使用含跨地区调入/进口
     （行平衡：中间使用 + 最终使用 - 进口 = 总产出），
-    故 B 不可解释为"北京市本地产出的分配比例"，
-    而应理解为"北京经济体对该部门产品的中间使用结构"。
+    故 B 不宜解释为"北京市本地产出的分配比例"，
+    而应作为"各下游部门对该产品的中间使用暴露与产业关联强度指标"。
     """
     if shock_sector not in SECTOR_NAMES:
         return {"error": f"未知部门: {shock_sector}"}
     j = SECTOR_NAMES.index(shock_sector)
     sign = -1.0 if direction in ("下降", "下跌", "减产", "回落") else 1.0
 
-    # ---- 供给分配系数矩阵 B = D⁻¹Z（行归一化，分母为部门总产出）----
+    # ---- 供给分配系数矩阵 B = D⁻¹Z（按卖方部门总产出系数化）----
     Z = A * X_BASE[None, :]                          # 中间流量矩阵（亿元）
     B = Z / np.where(X_BASE[:, None] > 0, X_BASE[:, None], np.inf)
     B = np.nan_to_num(B)
@@ -164,9 +164,10 @@ def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str =
         "real_estate_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("房地产")), 2),
         "construction_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("建筑业")), 2),
         "supply_multiplier": round(supply_mult, 2),
-        "note": "标准Ghosh口径（B=D⁻¹Z按行归一化）。注意：地区表中间使用含跨地区调入/进口，"
-                "B反映北京经济体对该部门产品的中间使用结构，非本地产出的销售分配；"
-                "测算结果应解读为投入需求/产业关联压力的情景值",
+        "note": "标准Ghosh口径（B=D⁻¹Z，按卖方部门总产出系数化，与A相似故谱半径相同可稳定求逆）。"
+                "地区表中间使用含跨地区调入/进口，B反映各下游部门对该产品的中间使用暴露强度，"
+                "非本地产出的销售分配比例；测算结果应解读为供给侧投入压力沿产业链传导的情景值，"
+                "而非对北京市各行业实际产出变化的确定性预测",
     }
 
 

@@ -84,7 +84,7 @@ def build_markdown(report: dict) -> str:
     # 冲击模型类型（Leontief需求侧 / Ghosh供给侧）
     model_tag = (report.get("impact") or {}).get("model", "")
     if model_tag:
-        kind = "Ghosh 供给侧模型（成本推动型冲击，ΔX = ΔV·(I-A)⁻¹）" if model_tag.startswith("Ghosh") \
+        kind = "Ghosh 供给侧模型（初始投入收缩情景，ΔX = ΔV·(I-B)⁻¹，B=D⁻¹Z 供给分配系数）" if model_tag.startswith("Ghosh") \
             else "Leontief 需求侧模型（最终需求冲击，X = (I-A)⁻¹Y）"
         lines.append(f"\n> 本次分析采用：**{kind}**")
     lines += [
