@@ -400,7 +400,7 @@ _SECTOR_ALIASES = {
     "家具": "家具制造", "家居": "家具制造", "家具制造": "家具制造",
     "电力": "电力热力", "电力热力": "电力热力", "能源": "电力热力",
     "工程机械": "机械设备", "机械": "机械设备", "机械设备": "机械设备",
-    "装修": "建筑装饰", "建筑装饰": "建筑装饰",
+    "装修": "建筑业", "建筑装饰": "建筑业",  # 聚合口径：建筑装饰并入建筑业
     "房地产": "房地产", "地产": "房地产",
     "建筑": "建筑业", "建筑业": "建筑业",
     "金融": "金融业", "银行": "金融业", "金融业": "金融业",
@@ -412,17 +412,24 @@ _SECTOR_ALIASES = {
 
 
 def _supply_sector(q: str) -> str:
-    """提取供给侧冲击行业：别名表 → 部门名直配 → 识别失败返回空串（不猜测默认行业）"""
+    """提取供给侧冲击行业：别名表 → 部门名直配 → 识别失败返回空串（不猜测默认行业）
+    最终校验：映射结果必须属于模型 13 部门（io.SECTOR_NAMES），否则拒绝。"""
+    result = ""
     # 1) 别名表（长词优先，避免"家具"误命中"家具制造"之外的场景）
     for alias in sorted(_SECTOR_ALIASES, key=len, reverse=True):
         if alias in q:
-            return _SECTOR_ALIASES[alias]
+            result = _SECTOR_ALIASES[alias]
+            break
     # 2) 部门名直配
-    for s in io.SECTOR_NAMES:
-        if s in q:
-            return s
-    # 3) 识别失败 → 空串（上层拒绝量化并提示用户明确行业，不猜测）
-    return ""
+    if not result:
+        for s in io.SECTOR_NAMES:
+            if s in q:
+                result = s
+                break
+    # 3) 最终校验：必须属于模型部门（防脏映射送进引擎）
+    if result and result not in io.SECTOR_NAMES:
+        return ""
+    return result
 
 
 def _parse_shock(q: str) -> tuple[float, str, bool]:
