@@ -378,7 +378,7 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
                 "原材料价格上涨（成本冲击）",
                 "依赖该投入的下游行业利润率压缩（买方议价能力决定转嫁程度）",
                 "沿产业链向中下游价格传导，终端消费承压",
-                "替代材料与库存策略可部分缓冲，长期引发供给结构调整",
+                "替代材料与库存策略可部分缓冲，长期或进一步形成成本上升与价格传导压力",
             ],
             "model_basis": "价格/成本冲击属价格效应，系统的 Ghosh 数量框架（初始投入数量冲击）不适用；"
                            "精确量化需投入产出价格模型（成本推动型 Pᵀ = AᵀP + 增加值率），留作后续扩展",
@@ -396,7 +396,7 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
                 f"受影响最大的行业依次为：{top_desc}。"
                 f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"
                 f"供给侧冲击沿'上游供给收缩 → 中间投入成本上升 → 下游生产受阻'传导，"
-                f"与需求侧冲击（Leontief）形成互补：本情景属于成本推动型。"
+                f"与需求侧冲击（Leontief）形成互补：本情景属于供给约束型冲击。"
                 f"注意：地区表中间使用含调入因素，结果应解读为投入需求/产业关联压力的情景测算。"
             )
             model_basis = (f"Ghosh供给侧模型（标准口径）ΔX=ΔV·(I-B)^(-1)，供给分配系数按卖方部门总产出系数化"
@@ -429,7 +429,7 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
                 "下游承压：家电、家具等后周期消费需求下滑（收入-消费渠道）",
                 "金融传导：房企信用风险暴露，银行敞口与抵押品价值承压（金融加速器渠道）",
             ]
-        # 传导三阶段预判（需求侧：六案例归纳框架；供给侧：成本推动框架）
+        # 传导三阶段预判（需求侧：六案例归纳框架；供给侧：供给约束传导框架）
         stages = impact.get("transmission_stages", {})
         if stages:
             st_desc = " → ".join(

@@ -369,7 +369,9 @@ function ReportView({ report }) {
 
       {impact?.transmission_stages?.stages?.length > 0 && (
         <div>
-          <div className="section-label mb-3">传导三阶段预判（六案例归纳框架）</div>
+          <div className="section-label mb-3">
+            传导三阶段预判（{impact?.model?.startsWith('Ghosh') ? '供给约束传导框架' : '六案例归纳框架'}）
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {impact.transmission_stages.stages.map((s, i) => {
               const c = s.pressure >= 70 ? '#ef4444' : s.pressure >= 45 ? '#f97316' : '#22c55e'

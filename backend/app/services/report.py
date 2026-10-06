@@ -59,10 +59,12 @@ def build_markdown(report: dict) -> str:
     lines += ["\n## 3. Transmission Mechanism（传导机制）"]
     for i, step in enumerate(report.get("transmission_path", []), 1):
         lines.append(f"{i}. {step}")
-    # 传导三阶段预判
+    # 传导三阶段预判（标题按模型类型动态）
     stages = (report.get("impact") or {}).get("transmission_stages") or {}
     if stages.get("stages"):
-        lines += ["\n### 传导三阶段预判（六案例归纳框架）"]
+        model_tag = (report.get("impact") or {}).get("model", "")
+        fw_label = "供给约束传导框架" if model_tag.startswith("Ghosh") else "六案例归纳框架"
+        lines += [f"\n### 传导三阶段预判（{fw_label}）"]
         for s in stages["stages"]:
             lines.append(f"\n**{s['name']}**（{s['window']}，压力指数 {s['pressure']}/100）")
             lines.append(f"- 机制：{s['mechanism']}")

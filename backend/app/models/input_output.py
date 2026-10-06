@@ -77,7 +77,7 @@ def analyze_shock(shock_percent: float, direction: str = "下降",
 
 
 def _stage_forecast(rows: list, shock_pct: float, direction: str, kind: str = "demand") -> dict:
-    """传导三阶段预判：需求侧用六案例归纳框架，供给侧用成本推动框架"""
+    """传导三阶段预判：需求侧用六案例归纳框架，供给侧用供给约束传导框架"""
     import json as _json
     from ..config import DATA_DIR as _DD
     try:
