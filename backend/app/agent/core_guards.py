@@ -34,7 +34,7 @@ def has_explicit_shock(question: str) -> bool:
 def expected_model(question: str) -> str:
     """按问题语义判定应使用的模型：'leontief' / 'ghosh' / 'qualitative' / 'none'
     'qualitative' = 价格/成本冲击或房价（资产价格）变化 → 定性机制分析；
-    'none' = 无明确量化冲击幅度（纯知识/定性问题）→ 数量模型全部禁止。
+    'none' = 无明确量化冲击幅度，或行业无法映射到模型 13 部门口径 → 数量模型全部禁止。
     注意：价格/房价判断优先于幅度检查（带幅度的价格冲击仍属定性范畴）。"""
     if not question:
         return "none"
@@ -43,10 +43,14 @@ def expected_model(question: str) -> str:
         return "qualitative"           # 房价 = 资产价格变化 → 定性
     if _has_price(question):
         return "qualitative"           # 价格/成本冲击 → 定性（即使带幅度）
+    if _has_supply(question):
+        # 数量型供给冲击：还须行业能映射到模型 13 部门口径（不猜测行业）
+        from app.agent.core import _supply_sector
+        if not _supply_sector(question):
+            return "none"
+        return "ghosh"                 # 数量型供给冲击
     if not has_explicit_shock(question):
         return "none"                  # 无明确冲击幅度 → 数量模型全部禁止
-    if _has_supply(question):
-        return "ghosh"                 # 数量型供给冲击
     return "leontief"                  # 数量型需求冲击
 
 

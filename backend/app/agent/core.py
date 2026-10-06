@@ -126,6 +126,7 @@ class RiskAgent:
 
         last_impact = None   # 最后一次产业链测算的完整结果
         last_cases = []      # 最后一次案例检索结果
+        blocked_tools = set()  # 已被守卫拦截的工具（同问题内不再重试）
         for _ in range(8):  # 最多 8 轮工具调用
             resp = self.client.chat.completions.create(
                 model=LLM_MODEL, messages=messages,
@@ -160,6 +161,18 @@ class RiskAgent:
             messages.append(msg)
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments or "{}")
+                # 守卫记忆：已被拦截的数量模型不再执行（防 LLM 反复重试）
+                if tc.function.name in ("analyze_industry_chain_impact", "analyze_supply_shock") \
+                        and tc.function.name in blocked_tools:
+                    blocked_res = {"blocked": True, "final": True, "error": "该工具此前已被守卫拦截（行业/口径不适用），禁止重复调用",
+                                   "instruction": "禁止再调用任何数量模型；请立即基于知识库检索结果输出定性机制分析"}
+                    yield {"type": "tool", "status": "done", "tool": tc.function.name,
+                           "args": args, "result_preview": blocked_res["error"]}
+                    messages.append({
+                        "role": "tool", "tool_call_id": tc.id,
+                        "content": json.dumps(blocked_res, ensure_ascii=False)[:2000],
+                    })
+                    continue
                 yield {"type": "tool", "status": "start", "tool": tc.function.name, "args": args}
                 # Canonical Scenario 校验与参数规范化已下沉至 execute_tool（单一守卫入口）
                 result = execute_tool(tc.function.name, args, ctx, question=question)
@@ -168,6 +181,9 @@ class RiskAgent:
                     not result.get("blocked") and not result.get("error")
                     and "impact_matrix" in result
                 )
+                if not valid_model_result and tc.function.name in (
+                        "analyze_industry_chain_impact", "analyze_supply_shock"):
+                    blocked_tools.add(tc.function.name)  # 记忆：同问题内不再重试该工具
                 if tc.function.name == "analyze_industry_chain_impact" and valid_model_result:
                     last_impact = result
                 elif tc.function.name == "analyze_supply_shock" and valid_model_result:
@@ -294,12 +310,19 @@ class RiskAgent:
                           "result_preview": "价格效应不进入数量模型，输出定性机制分析"})
             impact = None
         elif has_shock and supply_hit:
-            # 数量型供给冲击 → Ghosh
+            # 数量型供给冲击 → Ghosh（行业识别失败则拒绝量化，不猜测默认行业）
             sector = _supply_sector(q)
-            impact = io.ghosh_supply_shock(sector, pct, direction)
-            trace.append({"tool": "analyze_supply_shock",
-                          "args": {"sector": sector, "shock_percent": pct, "direction": direction},
-                          "result_preview": f"Ghosh供给侧：总产出变动 {impact.get('total_output_change_yi')} 亿元"})
+            if not sector:
+                trace.append({"tool": "analyze_supply_shock",
+                              "args": {"question": q},
+                              "result_preview": "无法将问题中的行业映射到模型13部门，拒绝量化并提示明确口径"})
+                impact = None
+                supply_sector_unresolved = True
+            else:
+                impact = io.ghosh_supply_shock(sector, pct, direction)
+                trace.append({"tool": "analyze_supply_shock",
+                              "args": {"sector": sector, "shock_percent": pct, "direction": direction},
+                              "result_preview": f"Ghosh供给侧：总产出变动 {impact.get('total_output_change_yi')} 亿元"})
         elif has_shock:
             # 数量型需求冲击 → Leontief
             impact = io.analyze_shock(pct, direction)
@@ -328,6 +351,12 @@ class RiskAgent:
             fid = next(iter(ctx["uploads"]))
             upload_summary = execute_tool("analyze_uploaded_data", {"file_id": fid}, ctx)
             trace.append({"tool": "analyze_uploaded_data", "args": {"file_id": fid}, "result_preview": "已分析"})
+
+        # 供给冲击行业无法映射到13部门 → 定性分析（拒绝猜测行业）
+        if supply_sector_unresolved:
+            return _compose_report(q, kb, None, [], agg, similar.get("cases", []),
+                                   upload_summary, price_hit, house_price_hit,
+                                   sector_unresolved=True), trace
 
         return _compose_report(q, kb, impact, industry_scores, agg, similar.get("cases", []),
                                upload_summary, price_hit, house_price_hit), trace
@@ -362,12 +391,38 @@ def _is_supply_side(q: str) -> bool:
     return not any(k in q for k in _DEMAND_BYPASS)
 
 
+# 行业别名表：自然语言 → 13 部门口径（含口语/常用简称）
+_SECTOR_ALIASES = {
+    "水泥": "建材", "玻璃": "建材", "装修建材": "建材", "防水材料": "建材",
+    "建材": "建材", "建筑材料": "建材",
+    "钢材": "钢铁", "螺纹钢": "钢铁", "钢铁": "钢铁", "金属冶炼": "钢铁",
+    "家电": "家用电器", "家用电器": "家用电器", "空调": "家用电器", "冰箱": "家用电器",
+    "家具": "家具制造", "家居": "家具制造", "家具制造": "家具制造",
+    "电力": "电力热力", "电力热力": "电力热力", "能源": "电力热力",
+    "工程机械": "机械设备", "机械": "机械设备", "机械设备": "机械设备",
+    "装修": "建筑装饰", "建筑装饰": "建筑装饰",
+    "房地产": "房地产", "地产": "房地产",
+    "建筑": "建筑业", "建筑业": "建筑业",
+    "金融": "金融业", "银行": "金融业", "金融业": "金融业",
+    "批发零售": "批发零售", "零售": "批发零售",
+    "交通运输": "交通运输", "物流": "交通运输",
+    "化工": "化工", "化学": "化工",
+    "专业服务": "专业服务", "服务": "专业服务",
+}
+
+
 def _supply_sector(q: str) -> str:
-    """提取供给侧冲击行业（默认钢铁）"""
+    """提取供给侧冲击行业：别名表 → 部门名直配 → 识别失败返回空串（不猜测默认行业）"""
+    # 1) 别名表（长词优先，避免"家具"误命中"家具制造"之外的场景）
+    for alias in sorted(_SECTOR_ALIASES, key=len, reverse=True):
+        if alias in q:
+            return _SECTOR_ALIASES[alias]
+    # 2) 部门名直配
     for s in io.SECTOR_NAMES:
         if s in q:
             return s
-    return "钢铁"
+    # 3) 识别失败 → 空串（上层拒绝量化并提示用户明确行业，不猜测）
+    return ""
 
 
 def _parse_shock(q: str) -> tuple[float, str, bool]:
@@ -381,8 +436,31 @@ def _parse_shock(q: str) -> tuple[float, str, bool]:
 
 # ---------------- 报告组装 ----------------
 def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, upload_summary,
-                    price_hit: bool = False, house_price_hit: bool = False) -> dict:
+                    price_hit: bool = False, house_price_hit: bool = False,
+                    sector_unresolved: bool = False) -> dict:
     kb_sources = [f"[{k['category']}] {k['source']}" for k in kb[:3]]
+    if sector_unresolved and impact is None:
+        # 供给冲击行业无法映射到模型13部门 → 定性分析（不猜测行业）
+        return {
+            "question": question,
+            "summary": (
+                f"针对「{question}」：问题中提到的行业无法映射到模型覆盖的 13 个部门口径，"
+                f"系统不做猜测性量化。定性机制：该行业供给收缩的影响取决于下游对其产品的依赖度、"
+                f"替代材料可得性与库存周期。"
+                f"请明确行业口径（如钢铁/建材/电力热力等）后再进行量化测算。"
+            ),
+            "risk_level": "关注",
+            "data_basis": kb_sources,
+            "transmission_path": [
+                "行业供给收缩（未明确到模型部门口径）",
+                "下游依赖度决定首轮冲击范围",
+                "替代材料与库存缓冲，或沿产业链持续传导",
+            ],
+            "model_basis": "行业口径超出模型 13 部门覆盖范围，未执行 Ghosh 数量测算；"
+                           "请按系统部门口径（房地产/建筑/钢铁/建材/化工/机械设备/家用电器/家具制造/"
+                           "金融/批发零售/交通运输/电力热力/专业服务）明确行业后重试",
+            "key_indicators": ["明确行业口径后可测算", "或参考知识库中相近行业的历史案例"],
+        }
     if house_price_hit and impact is None:
         # 房价涨跌：资产价格/估值变化，不直接等价于最终需求数量冲击 → 定性分析
         return {

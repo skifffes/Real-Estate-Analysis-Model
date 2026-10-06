@@ -127,9 +127,16 @@ def execute_tool(name: str, arguments: dict, ctx: dict | None = None,
         pct, direction, has = _parse_shock(question)
         if not has:
             return {"error": "用户问题未提供明确的量化冲击幅度（shock_percent），本次不执行数量模型",
-                    "blocked": True}
+                    "blocked": True, "final": True,
+                    "instruction": "禁止再次调用任何数量模型；请立即基于知识库检索结果输出定性机制分析"}
         if name == "analyze_supply_shock":
-            arguments = {"sector": _supply_sector(question),
+            sector_s = _supply_sector(question)
+            if not sector_s:
+                return {"error": "无法将问题中的行业映射到模型 13 部门口径，本次不执行数量模型",
+                        "blocked": True, "final": True,
+                        "instruction": "该行业超出模型 13 部门覆盖范围，禁止再次调用任何数量模型；"
+                                       "请立即基于知识库检索结果输出定性机制分析，并建议用户明确行业口径"}
+            arguments = {"sector": sector_s,
                          "shock_percent": pct, "direction": direction}
         else:
             arguments = {"shock_percent": pct, "direction": direction}
@@ -139,13 +146,15 @@ def execute_tool(name: str, arguments: dict, ctx: dict | None = None,
         sp = arguments.get("shock_percent")
         if sp is None:
             return {"error": "未提供明确的量化冲击幅度（shock_percent），本次不执行数量模型",
-                    "blocked": True}
+                    "blocked": True, "final": True,
+                    "instruction": "禁止再次调用任何数量模型；请立即输出定性机制分析"}
         return io.analyze_shock(float(sp), arguments.get("direction", "下降"))
     if name == "analyze_supply_shock":
         sp = arguments.get("shock_percent")
         if sp is None:
             return {"error": "未提供明确的量化冲击幅度（shock_percent），本次不执行数量模型",
-                    "blocked": True}
+                    "blocked": True, "final": True,
+                    "instruction": "禁止再次调用任何数量模型；请立即输出定性机制分析"}
         return io.ghosh_supply_shock(
             arguments.get("sector", "钢铁"),
             float(sp),
