@@ -108,9 +108,18 @@ TOOL_SCHEMAS = [
 ]
 
 
-def execute_tool(name: str, arguments: dict, ctx: dict | None = None) -> dict:
-    """统一工具执行入口。ctx: {'uploads': {file_id: summary}}"""
+def execute_tool(name: str, arguments: dict, ctx: dict | None = None,
+                 question: str = "") -> dict:
+    """统一工具执行入口。ctx: {'uploads': {file_id: summary}}
+    服务端路由校验：即使 LLM 发出错误 tool call，数量模型也不会被价格/房价类问题触发。"""
     ctx = ctx or {}
+    # ---- 服务端路由校验（架构级保证，不依赖提示词遵守） ----
+    from .core_guards import quantity_model_allowed
+    if name in ("analyze_industry_chain_impact", "analyze_supply_shock"):
+        allowed, reason = quantity_model_allowed(question)
+        if not allowed:
+            return {"blocked": True, "reason": reason,
+                    "note": "价格/资产价格冲击不进入数量模型，请改用定性机制分析"}
     if name == "search_knowledge_base":
         return {"results": rag.search(arguments.get("query", ""), arguments.get("top_k", 4))}
     if name == "analyze_industry_chain_impact":

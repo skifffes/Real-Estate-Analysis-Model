@@ -13,7 +13,7 @@ SYSTEM_PROMPT = """你是「房地产产业链风险分析智能体」，一名�
 
 ## 工作准则
 1. 回答任何金融问题前，必须优先调用 search_knowledge_base 检索知识库获取依据。
-2. 涉及"房地产投资/房价/销售 上升/下降 X%"等最终需求情景问题时，必须调用 analyze_industry_chain_impact 运行 Leontief 需求侧模型。
+2. 涉及"房地产投资/销售 上升/下降 X%"等最终需求数量情景问题时，必须调用 analyze_industry_chain_impact 运行 Leontief 需求侧模型。注意：房价涨跌属资产价格变化，不适用该模型（见第 4 条）。
 3. 涉及"某行业初始投入收缩/资源供给收缩/减产 X%"等数量型供给冲击时，调用 analyze_supply_shock 运行 Ghosh 供给侧模型（ΔX=ΔV·(I-B)⁻¹，B=D⁻¹Z 按卖方部门总产出系数化）。注意：数量型供给收缩情景被映射为同幅度初始投入冲击进行压力测试，两者非严格等价，表述时需说明。
 4. **价格/成本冲击（原材料涨价、价格上涨、成本上升）与房价涨跌（资产价格/估值变化）不调用任何数量模型**——前者属价格效应，后者不能直接等价为最终需求数量冲击。此类问题只做定性机制分析（房价：财富效应/抵押品渠道/投资预期渠道），并注明"精确量化需价格模型或价格-需求弹性，留作后续扩展"。仅当问题同时包含明确的数量指标（投资/新开工/销售面积）时才进入数量模型。
 5. 对受影响最大的前几个行业调用 compute_risk_score 计算风险评分。
@@ -161,7 +161,7 @@ class RiskAgent:
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments or "{}")
                 yield {"type": "tool", "status": "start", "tool": tc.function.name, "args": args}
-                result = execute_tool(tc.function.name, args, ctx)
+                result = execute_tool(tc.function.name, args, ctx, question=question)  # 服务端路由校验
                 if tc.function.name == "analyze_industry_chain_impact":
                     last_impact = result
                 elif tc.function.name == "analyze_supply_shock":
@@ -188,7 +188,8 @@ class RiskAgent:
             report["impact"] = impact  # 模型结果强制覆盖（LLM 不产生数字）
             # 口径声明强制追加到摘要尾部（LLM 措辞不受控，用固定声明保证口径一致）
             disclaimer = ("｜口径说明：本结果为基于北京市2023年投入产出表的13部门需求/供给侧"
-                          "关联压力情景测算，不解释为北京市各行业实际产出变化的确定性预测。")
+                          "关联压力情景测算，不解释为北京市各行业实际产出变化的确定性预测；"
+                          "量化数值以本报告结构化表格（模型引擎计算）为准。")
             if "口径说明" not in str(report.get("summary", "")):
                 report["summary"] = str(report.get("summary", "")) + disclaimer
             matrix = {r["industry"]: r for r in impact.get("impact_matrix", [])}
@@ -281,17 +282,24 @@ class RiskAgent:
                           "result_preview": "房价属资产价格变化，不直接等价于最终需求冲击，输出定性机制分析"})
             impact = None
         elif has_shock and price_hit:
-            if supply_hit:
-                sector = _supply_sector(q)
-                impact = io.ghosh_supply_shock(sector, pct, direction)
-                trace.append({"tool": "analyze_supply_shock",
-                              "args": {"sector": sector, "shock_percent": pct, "direction": direction},
-                              "result_preview": f"Ghosh供给侧：总产出变动 {impact.get('total_output_change_yi')} 亿元"})
-            else:
-                impact = io.analyze_shock(pct, direction)
-                trace.append({"tool": "analyze_industry_chain_impact",
-                              "args": {"shock_percent": pct, "direction": direction},
-                              "result_preview": f"Leontief需求侧：总产出变动 {impact['total_output_change_yi']} 亿元"})
+            # 价格/成本冲击（如"涨价""成本上升"）属价格效应 → 不进数量模型，纯定性
+            trace.append({"tool": "qualitative_price_analysis",
+                          "args": {"question": q},
+                          "result_preview": "价格效应不进入数量模型，输出定性机制分析"})
+            impact = None
+        elif has_shock and supply_hit:
+            # 数量型供给冲击 → Ghosh
+            sector = _supply_sector(q)
+            impact = io.ghosh_supply_shock(sector, pct, direction)
+            trace.append({"tool": "analyze_supply_shock",
+                          "args": {"sector": sector, "shock_percent": pct, "direction": direction},
+                          "result_preview": f"Ghosh供给侧：总产出变动 {impact.get('total_output_change_yi')} 亿元"})
+        elif has_shock:
+            # 数量型需求冲击 → Leontief
+            impact = io.analyze_shock(pct, direction)
+            trace.append({"tool": "analyze_industry_chain_impact",
+                          "args": {"shock_percent": pct, "direction": direction},
+                          "result_preview": f"Leontief需求侧：总产出变动 {impact['total_output_change_yi']} 亿元"})
 
         # 3. 行业风险评分（受影响前5行业）
         industry_scores = []
@@ -445,8 +453,9 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
             ]
         else:
             summary = (
-                f"针对「{question}」：基于13部门投入产出模型（北京市2023年表）测算，情景「{impact['scenario']}」"
-                f"将导致投入需求端的产业关联压力约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
+                f"针对「{question}」：基于13部门投入产出模型（北京市2023年表）测算，"
+                f"本情景设定为「{impact['scenario']}」，"
+                f"测算得投入需求端的产业关联压力约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
                 f"（占地区总产出 {abs(impact['total_output_change_pct'])}%）。"
                 f"受影响最大的行业依次为：{top_desc}。"
                 f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"

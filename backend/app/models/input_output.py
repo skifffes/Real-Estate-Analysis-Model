@@ -65,7 +65,10 @@ def analyze_shock(shock_percent: float, direction: str = "下降",
     total_delta = float(dX.sum())
     return {
         "model": "Leontief Input-Output Model, X = (I-A)^(-1) Y",
-        "scenario": f"房地产{'及建筑业' if len(sectors) > 1 else ''}最终需求{direction} {shock_percent}%",
+        "scenario": (f"房地产—建筑业联合最终需求{direction} {shock_percent}%（复合压力测试情景："
+                     f"将冲击等幅施加于房地产与建筑业最终需求，非对单一现实指标的一一映射）"
+                     if len(sectors) > 1 else
+                     f"{sectors[0]}最终需求{direction} {shock_percent}%"),
         "sector_order": SECTOR_NAMES,
         "impact_matrix": rows,
         "total_output_change_yi": round(total_delta, 1),
