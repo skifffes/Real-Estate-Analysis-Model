@@ -112,61 +112,61 @@ def _stage_forecast(rows: list, shock_pct: float, direction: str, kind: str = "d
 
 
 def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str = "下降") -> dict:
-    """Ghosh-type 供给侧冲击模型（地区表适配口径，一轮直接分配）
-    ΔX_k = (x_jk / TI_k) × ΔV_j 的投入依赖度等比传导。
+    """Ghosh 供给侧冲击模型（标准口径）：ΔX = ΔV · (I-B)^(-1)
 
-    为什么不用标准 Ghosh (I-B)^(-1)：地区投入产出表的中间流量含调入品
-    （如北京钢铁需求主要靠河北调入），B_ij=Z_ij/X_i 的行和可达 4+，
-    (I-B) 谱半径>1 幂级数不收敛（实测奇异）。一轮直接分配规避调入因素，
-    是地区表供给侧传导的常用可辩护口径。"""
+    B 为供给分配系数矩阵（按行归一化，分母为卖方部门总产出）：
+        B = D⁻¹Z，其中 D = diag(X)，即 B_ij = Z_ij / X_i
+    与直接消耗矩阵的关系：B = D⁻¹AD（相似矩阵，谱半径相同 ρ(B)=ρ(A)<1），
+    因此 (I-B) 可正常求逆。
+
+    口径提示：地区投入产出表的中间使用含跨地区调入/进口
+    （行平衡：中间使用 + 最终使用 - 进口 = 总产出），
+    故 B 不可解释为"北京市本地产出的分配比例"，
+    而应理解为"北京经济体对该部门产品的中间使用结构"。
+    """
     if shock_sector not in SECTOR_NAMES:
         return {"error": f"未知部门: {shock_sector}"}
     j = SECTOR_NAMES.index(shock_sector)
     sign = -1.0 if direction in ("下降", "下跌", "减产", "回落") else 1.0
 
-    Z = A * X_BASE[None, :]                          # 中间流量矩阵（亿元，含调入）
-    TI = Z.sum(axis=0)                               # 各部门中间投入合计（列和）
-    dX_j = sign * (shock_percent / 100.0) * X_BASE[j]  # 冲击部门自身产出变动
+    # ---- 供给分配系数矩阵 B = D⁻¹Z（行归一化，分母为部门总产出）----
+    Z = A * X_BASE[None, :]                          # 中间流量矩阵（亿元）
+    B = Z / np.where(X_BASE[:, None] > 0, X_BASE[:, None], np.inf)
+    B = np.nan_to_num(B)
+    G = np.linalg.inv(np.eye(N) - B)                 # Ghosh 逆矩阵 (I-B)^(-1)
 
-    # 冲击部门对各部门的分配比例（含最终使用，基于总使用结构）
-    total_use = Z.sum(axis=1) + np.array(Y_BASE)     # 部门i产品的总使用
-    alloc = Z[j, :] / np.where(total_use > 0, total_use, np.inf)  # 分配给各部门的比例
-    alloc = np.nan_to_num(alloc)
+    # ---- 冲击向量：部门初始投入（增加值）变动 ----
+    VA = X_BASE - (A * X_BASE[None, :]).sum(axis=0)  # 各部门增加值
+    dV = np.zeros(N)
+    dV[j] = sign * (shock_percent / 100.0) * VA[j]
+    dX = dV @ G                                      # 行向量左乘 Ghosh 逆
 
-    # 一轮直接分配传导：下游k从冲击部门获得的中间投入减少 alloc[k]*|dX_j|，
-    # 按其对该投入的依赖度（占中间投入合计比例）等比压缩产出
     rows = []
-    for k, name in enumerate(SECTOR_NAMES):
-        if k == j:
-            continue
-        cut = alloc[k] * abs(dX_j)                   # k 获得的中间品减少量
-        if cut <= 0 or TI[k] <= 0:
-            continue
-        dX_k = -cut / TI[k] * X_BASE[k]              # 产出等比收缩
-        impact_pct = float(dX_k / X_BASE[k] * 100.0)
+    for i, name in enumerate(SECTOR_NAMES):
+        impact_pct = float(dX[i] / X_BASE[i] * 100.0)
         if abs(impact_pct) < 0.05:
             continue
         rows.append({"industry": name, "impact_pct": round(impact_pct, 2),
-                     "delta_output_yi": round(float(dX_k), 1),
+                     "delta_output_yi": round(float(dX[i]), 1),
                      "debt_ratio": DEBT.get(name, 55)})
-
     rows.sort(key=lambda r: abs(r["impact_pct"]), reverse=True)
-    total_delta = dX_j + sum(r["delta_output_yi"] for r in rows)
-    supply_mult = abs(sum(r["delta_output_yi"] for r in rows)) / max(abs(dX_j), 1e-9)
 
+    # 供给推动乘数：部门j初始投入变动1单位对总产出的拉动（Ghosh 逆第 j 行和）
+    supply_mult = float(G[j, :].sum())
     return {
-        "model": "Ghosh-type Supply-Side Model (regional direct allocation)",
-        "scenario": f"{shock_sector}供给侧（产出）{direction} {shock_percent}%",
+        "model": "Ghosh Supply-Side Model, ΔX = ΔV·(I-B)^(-1)",
+        "scenario": f"{shock_sector}供给侧（增加值）{direction} {shock_percent}%",
         "sector_order": SECTOR_NAMES,
         "impact_matrix": rows,
-        "total_output_change_yi": round(total_delta, 1),
+        "total_output_change_yi": round(float(dX.sum()), 1),
         "transmission_stages": _stage_forecast(rows, shock_percent, direction, kind="supply"),
-        "total_output_change_pct": round(total_delta / float(X_BASE.sum()) * 100, 3),
+        "total_output_change_pct": round(float(dX.sum()) / float(X_BASE.sum()) * 100, 3),
         "real_estate_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("房地产")), 2),
         "construction_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("建筑业")), 2),
-        "supply_multiplier": round(1 + supply_mult, 2),
-        "note": "地区表适配口径：中间流量含调入品，标准Ghosh(I-B)^(-1)在地区表上谱半径>1不收敛，"
-                "故采用一轮直接分配（供给缩减按分配结构等比传导至下游），调入效应留作展望",
+        "supply_multiplier": round(supply_mult, 2),
+        "note": "标准Ghosh口径（B=D⁻¹Z按行归一化）。注意：地区表中间使用含跨地区调入/进口，"
+                "B反映北京经济体对该部门产品的中间使用结构，非本地产出的销售分配；"
+                "测算结果应解读为投入需求/产业关联压力的情景值",
     }
 
 

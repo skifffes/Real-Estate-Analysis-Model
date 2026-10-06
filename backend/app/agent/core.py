@@ -342,16 +342,18 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
         is_ghosh = str(impact.get("model", "")).startswith("Ghosh")
         if is_ghosh:
             summary = (
-                f"针对「{question}」：基于Ghosh供给侧模型测算，情景「{impact['scenario']}」"
+                f"针对「{question}」：基于Ghosh供给侧模型（标准供给分配口径 B=D⁻¹Z）测算，情景「{impact['scenario']}」"
                 f"将通过中间投入成本渠道导致全行业总产出变动约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
                 f"（占总产出 {abs(impact['total_output_change_pct'])}%）。"
                 f"受影响最大的行业依次为：{top_desc}。"
                 f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"
                 f"供给侧冲击沿'上游供给收缩 → 中间投入成本上升 → 下游生产受阻'传导，"
                 f"与需求侧冲击（Leontief）形成互补：本情景属于成本推动型。"
+                f"注意：地区表中间使用含调入因素，结果应解读为投入需求/产业关联压力的情景测算。"
             )
-            model_basis = (f"Ghosh供给侧模型 ΔX=ΔV·(I-A)^(-1)：以{impact['scenario']}模拟初始投入变动，"
-                           f"通过分配系数矩阵向下游扩散（与Leontief需求侧模型互补）")
+            model_basis = (f"Ghosh供给侧模型（标准口径）ΔX=ΔV·(I-B)^(-1)，供给分配矩阵 B=D⁻¹Z 按行归一化；"
+                           f"以{impact['scenario']}模拟初始投入变动，供给推动乘数 {impact.get('supply_multiplier')}。"
+                           f"口径说明：地区表中间使用含调入，B反映北京经济体对该部门产品的中间使用结构")
             transmission = [
                 f"「{impact['scenario'].split('供给侧')[0]}」供给收缩，初始投入（增加值）直接减少",
                 "中间投入供给缺口出现：依赖该行业作为原材料的部门生产受阻",
