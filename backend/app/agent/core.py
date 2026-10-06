@@ -32,7 +32,11 @@ SYSTEM_PROMPT = """你是「房地产产业链风险分析智能体」，一名�
 
 
 class RiskAgent:
+    # 运行模式：auto=配置了LLM则用LLM(失败降级)；offline=强制离线规则引擎；llm_only=仅LLM不降级
+    MODES = ("auto", "offline", "llm_only")
+
     def __init__(self):
+        self.mode_setting = "auto"   # 默认自动；可由 /api/agent/mode 运行时切换
         self.client = None
         if LLM_API_KEY:
             try:
@@ -42,8 +46,19 @@ class RiskAgent:
                 self.client = None
 
     @property
+    def llm_available(self) -> bool:
+        """LLM 是否实际可用（配置了Key且客户端初始化成功）"""
+        return self.client is not None
+
+    @property
     def mode(self) -> str:
-        return f"LLM ({LLM_MODEL})" if self.client else "规则引擎（未配置LLM_API_KEY，自动降级）"
+        if not self.llm_available:
+            return "规则引擎（未配置LLM_API_KEY，自动降级）"
+        if self.mode_setting == "offline":
+            return "规则引擎（用户选择离线模式，数据零出网）"
+        if self.mode_setting == "llm_only":
+            return f"LLM ({LLM_MODEL})"
+        return f"LLM ({LLM_MODEL}) · 失败自动降级"
 
     # ---------------- 主入口 ----------------
     def run(self, question: str, ctx: dict | None = None) -> tuple[dict, list]:
@@ -59,11 +74,22 @@ class RiskAgent:
 
     def run_stream(self, question: str, ctx: dict):
         """生成器：yield {type: tool|final, ...}，供 SSE 流式输出工具轨迹"""
+        # 模式路由：offline 强制本地规则引擎；llm_only 不降级（失败直接抛错）
+        if self.mode_setting == "offline" or not self.client:
+            report, trace = self._rule_run(question, ctx)
+            for t in trace:
+                yield {"type": "tool", "status": "done", **t}
+            yield {"type": "final", "report": report}
+            return
         if self.client:
             try:
                 yield from self._llm_stream(question, ctx)
                 return
             except Exception as e:
+                # llm_only 模式：不降级，直接报错（用户明确要求仅LLM）
+                if self.mode_setting == "llm_only":
+                    yield {"type": "error", "message": f"LLM 调用失败（仅LLM模式，不降级）: {type(e).__name__}: {e}"}
+                    return
                 report, trace = self._rule_run(question, ctx)
                 report["summary"] = f"[LLM调用失败已降级: {type(e).__name__}] " + report.get("summary", "")
                 for t in trace:

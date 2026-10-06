@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from .config import DATA_DIR, UPLOAD_DIR, REPORTS_DIR
+from .config import DATA_DIR, UPLOAD_DIR, REPORTS_DIR, LLM_API_KEY
 from .knowledge import rag
 from .agent.core import RiskAgent
 from .agent.tools import execute_tool
@@ -123,6 +123,29 @@ def chat_stream(q: str):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------- Agent 模式管理 ----------
+class AgentModeRequest(BaseModel):
+    mode: str  # auto / offline / llm_only
+
+
+@app.get("/api/agent/mode")
+def get_agent_mode():
+    """当前 Agent 运行模式与可用性"""
+    return {"mode": AGENT.mode_setting, "llm_available": AGENT.llm_available,
+            "llm_configured": bool(LLM_API_KEY), "description": AGENT.mode}
+
+
+@app.post("/api/agent/mode")
+def set_agent_mode(req: AgentModeRequest):
+    """切换 Agent 运行模式：auto=自动(推荐) / offline=强制离线(数据零出网) / llm_only=仅LLM"""
+    if req.mode not in AGENT.MODES:
+        raise HTTPException(400, f"无效模式: {req.mode}，可选 {AGENT.MODES}")
+    if req.mode == "llm_only" and not AGENT.llm_available:
+        raise HTTPException(400, "未配置 LLM_API_KEY，无法使用仅LLM模式")
+    AGENT.mode_setting = req.mode
+    return {"mode": AGENT.mode_setting, "description": AGENT.mode}
 
 
 # ---------- 数据上传 ----------

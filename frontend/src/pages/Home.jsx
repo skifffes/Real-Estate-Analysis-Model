@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { chat, riskColor, getHealth } from '../api.js'
+import { chat, riskColor, getHealth, getAgentMode, setAgentMode } from '../api.js'
 import Chart from '../components/Chart.jsx'
+
+const MODE_OPTIONS = [
+  { value: 'auto', label: '自动（推荐）', desc: '配置了LLM则用LLM，失败自动降级' },
+  { value: 'offline', label: '离线模式（数据零出网）', desc: '强制本地规则引擎，不上传任何数据' },
+  { value: 'llm_only', label: '仅LLM（不降级）', desc: 'LLM失败直接报错，需已配置API' },
+]
 
 const SUGGESTIONS = [
   '分析房地产投资下降15%的影响',
@@ -18,6 +24,23 @@ export default function Home() {
   const [health, setHealth] = useState(null)
 
   useEffect(() => { getHealth().then(setHealth).catch(() => {}) }, [])
+
+  // Agent 运行模式选择（auto/offline/llm_only）
+  const [modeInfo, setModeInfo] = useState(null)
+  const [modeOpen, setModeOpen] = useState(false)
+  useEffect(() => { getAgentMode().then(setModeInfo).catch(() => {}) }, [])
+
+  const changeMode = async (mode) => {
+    try {
+      const r = await setAgentMode(mode)
+      setModeInfo(prev => ({ ...prev, mode: r.mode, description: r.description }))
+      getHealth().then(setHealth).catch(() => {})
+      getAgentMode().then(setModeInfo).catch(() => {})
+    } catch (e) {
+      alert(e.response?.data?.detail || '切换失败')
+    }
+    setModeOpen(false)
+  }
 
   // 删除单条对话（AI消息含报告时连报告一起删；user+ai 成对删除）
   const delMsg = (i) => {
@@ -76,7 +99,9 @@ export default function Home() {
             msg.traceKey === traceKey
               ? (ev.type === 'tool'
                   ? { ...msg, events: [...msg.events, ev] }
-                  : { ...msg, report: ev.report, streaming: false })
+                  : ev.type === 'error'
+                    ? { ...msg, streaming: false, error: ev.message }
+                    : { ...msg, report: ev.report, streaming: false })
               : msg))
         }
       }
@@ -105,6 +130,39 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* Agent 运行模式选择器 */}
+          <div className="relative no-print">
+            <button onClick={() => setModeOpen(o => !o)}
+              className="text-xs px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:border-blue-500/60 transition-colors flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full ${modeInfo?.mode === 'offline' ? 'bg-emerald-400' : modeInfo?.mode === 'llm_only' ? 'bg-amber-400' : 'bg-blue-400'}`} />
+              {MODE_OPTIONS.find(o => o.value === modeInfo?.mode)?.label || '自动（推荐）'}
+              <span className="text-slate-600">▾</span>
+            </button>
+            {modeOpen && (
+              <div className="absolute right-0 top-full mt-2 w-80 bg-slate-950/98 border border-slate-700 rounded-xl p-2 z-30 shadow-2xl backdrop-blur">
+                {MODE_OPTIONS.map(o => {
+                  const disabled = o.value === 'llm_only' && !modeInfo?.llm_available
+                  const active = modeInfo?.mode === o.value
+                  return (
+                    <button key={o.value} disabled={disabled} onClick={() => changeMode(o.value)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors ${
+                        active ? 'bg-blue-600/20 border border-blue-700/60'
+                               : disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-slate-800/70 border border-transparent'}`}>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm ${active ? 'text-blue-300' : 'text-slate-200'}`}>{o.label}</span>
+                        {active && <span className="text-[10px] text-blue-400">当前</span>}
+                        {disabled && <span className="text-[10px] text-slate-600">未配置API</span>}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">{o.desc}</div>
+                    </button>
+                  )
+                })}
+                <div className="border-t border-slate-800 mt-2 pt-2 px-3 text-[10px] text-slate-600 leading-4">
+                  离线模式下上传数据与全部分析完全本地执行，适合敏感数据场景
+                </div>
+              </div>
+            )}
+          </div>
           {messages.length > 0 && (
             <button onClick={clearAll}
               className="text-xs px-3 py-2 rounded-lg border border-red-900/60 text-red-400 hover:bg-red-950/40 hover:border-red-700 transition-colors no-print">
