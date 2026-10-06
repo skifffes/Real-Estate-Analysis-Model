@@ -144,10 +144,10 @@ class RiskAgent:
                     report["summary"] = str(report.get("summary", "")) + (
                         "｜注：LLM 最终输出未能解析为结构化报告（已回退结构化模板），"
                         "LLM 分析要点摘录：" + llm_raw[:260] + "…")
-                    report = self._enrich_report(report, last_impact, last_cases)
+                    report = self.finalize_report(report, last_impact, last_cases)
                     yield {"type": "final", "report": report}
                     return
-                report = self._enrich_report(report, last_impact, last_cases)
+                report = self.finalize_report(report, last_impact, last_cases)
                 # 保险：问题要求结合上传数据但 LLM 未调用工具 → 直接融合数据摘要
                 if ctx.get("uploads") and any(k in question for k in ("上传", "数据文件")):
                     fid = next(iter(ctx["uploads"]))
@@ -196,14 +196,14 @@ class RiskAgent:
                     "role": "tool", "tool_call_id": tc.id,
                     "content": json.dumps(result, ensure_ascii=False)[:6000],
                 })
-        report, trace = self._rule_run(question, ctx)  # 超轮次兜底
+        report, trace = self._rule_run(question, ctx)  # 超轮次兜底（_rule_run 已含统一后处理）
         for t in trace:
             yield {"type": "tool", "status": "done", **t}
         yield {"type": "final", "report": report}
 
     @staticmethod
     def _enrich_report(report: dict, impact: dict | None, cases: list | None = None) -> dict:
-        """把工具计算的完整量化数据合并回 LLM 输出的报告（LLM 只输出部分字段）"""
+        """把工具计算的完整量化数据合并回报告（LLM 只输出部分字段）"""
         if not isinstance(report, dict):
             return report
         if impact:
@@ -243,16 +243,10 @@ class RiskAgent:
                 # 综合评分：强制由评分模型聚合（LLM 数字一律丢弃）
                 agg = risk_model.aggregate_risk(scores)
                 report["risk_score"], report["risk_level"] = agg["risk_score"], agg["risk_level"]
-        if cases:
-            report.setdefault("similar_cases", [
-                {"title": c["title"], "year": c.get("year"),
-                 "peak_impact": c.get("peak_impact"), "lessons": c.get("lessons")}
-                for c in cases
-            ])
-        # ---- 无有效模型结果（守卫拦截/未执行）时的数字清洗 ----
-        # LLM 可能自行编造影响表与评分（如“光伏组件-12%”“综合55分”），
-        # 既然数量模型未运行，这些数字一律删除：宁可不给数字，也不乱算。
-        if not impact:
+        else:
+            # ---- 无有效模型结果（守卫拦截/未执行）：LLM 编造的量化内容一律删除 ----
+            # 宁可不给数字，也不乱算（核心原则：没有经过确定性模型验证的结构化结论，
+            # 不允许进入最终报告）
             report.pop("affected_industries", None)
             report.pop("industry_scores", None)
             report.pop("risk_score", None)
@@ -261,6 +255,23 @@ class RiskAgent:
                     "不输出产业影响比例与风险评分；以下为基于知识库与产业机制的定性分析。")
             if "模型状态" not in str(report.get("summary", "")):
                 report["summary"] = str(report.get("summary", "")) + note
+        if isinstance(cases, list):
+            # 案例工具结果是唯一权威来源：无条件覆盖（LLM/模板写的案例一律丢弃）
+            report["similar_cases"] = [
+                {"title": c["title"], "year": c.get("year"),
+                 "peak_impact": c.get("peak_impact"), "lessons": c.get("lessons")}
+                for c in cases
+            ]
+        return report
+
+    @classmethod
+    def finalize_report(cls, report: dict, impact: dict | None, cases: list | None) -> dict:
+        """统一后处理（LLM/规则引擎两路径共用）：
+        1) 有有效 impact → 模型数字与评分强制覆盖，量化字段以引擎为准；
+        2) 无有效 impact → 删除全部量化表与评分（宁可不给数字，也不乱算）；
+        3) 案例检索结果无条件覆盖（工具结果是唯一权威来源，LLM 不能自行创造案例）。"""
+        report = cls._enrich_report(report, impact, cases)
+        # 无有效模型结果时的数字清洗已在 _enrich_report 内完成（impact=None 分支）
         return report
 
     @staticmethod
@@ -354,9 +365,11 @@ class RiskAgent:
                               "result_preview": f"score={r['risk_score']} ({r['risk_level']})"})
         agg = risk_model.aggregate_risk(industry_scores)
 
-        # 4. 历史案例
-        similar = execute_tool("retrieve_similar_cases", {"event": q, "top_k": 3})
-        trace.append({"tool": "retrieve_similar_cases", "args": {"event": q}, "result_preview": "2 条案例"})
+        # 4. 历史案例（传入 question 供二次校验；trace 显示实际条数）
+        similar = execute_tool("retrieve_similar_cases", {"event": q, "top_k": 3}, question=q)
+        n_cases = len(similar.get("cases", []))
+        trace.append({"tool": "retrieve_similar_cases", "args": {"event": q},
+                      "result_preview": f"{n_cases} 条案例"})
 
         # 5. 上传数据（如有）
         upload_summary = None
@@ -367,12 +380,16 @@ class RiskAgent:
 
         # 供给冲击行业无法映射到13部门 → 定性分析（拒绝猜测行业）
         if supply_sector_unresolved:
-            return _compose_report(q, kb, None, [], agg, similar.get("cases", []),
-                                   upload_summary, price_hit, house_price_hit,
-                                   sector_unresolved=True), trace
+            rep = _compose_report(q, kb, None, [], agg, similar.get("cases", []),
+                                  upload_summary, price_hit, house_price_hit,
+                                  sector_unresolved=True)
+            rep = self.finalize_report(rep, None, [])  # 统一后处理：无数字+案例覆盖
+            return rep, trace
 
-        return _compose_report(q, kb, impact, industry_scores, agg, similar.get("cases", []),
-                               upload_summary, price_hit, house_price_hit), trace
+        rep = _compose_report(q, kb, impact, industry_scores, agg, similar.get("cases", []),
+                              upload_summary, price_hit, house_price_hit)
+        rep = self.finalize_report(rep, impact, similar.get("cases", []))  # 统一后处理
+        return rep, trace
 
 
 # ---------------- 情景解析 ----------------
