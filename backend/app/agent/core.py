@@ -28,14 +28,17 @@ SYSTEM_PROMPT = """你是「房地产产业链风险分析智能体」，一名�
 ## 最终输出（必须是合法 JSON，不要输出其他任何文字）
 {
   "summary": "分析摘要（150-300字，给出核心结论）",
-  "risk_level": "低|关注|中|高|极高",
-  "risk_score": 0-100,
-  "affected_industries": [{"industry": "行业名", "impact_pct": 数值, "risk_score": 数值, "risk_level": "等级"}],
   "transmission_path": ["传导步骤1", "传导步骤2", ...],
   "model_basis": "模型依据（引用投入产出模型计算结果与乘数）",
   "data_basis": ["数据依据1（引用知识库来源）", ...],
   "key_indicators": ["建议关注指标1", ...]
-}"""
+}
+
+## 量化字段的条件输出
+- 若数量模型（Leontief/Ghosh）已成功运行并返回结果：在上述 JSON 中附加
+  "risk_level" / "affected_industries" 字段（行业影响数值以工具返回为准，不得自行修改或新增行业）；
+- 若数量模型未运行（守卫拦截/行业超出13部门口径）：**省略 risk_score、risk_level、affected_industries**，
+  不要自行编造或猜测任何行业与数字，仅输出定性分析。"""
 
 
 class RiskAgent:
@@ -215,22 +218,23 @@ class RiskAgent:
             if "口径说明" not in str(report.get("summary", "")):
                 report["summary"] = str(report.get("summary", "")) + disclaimer
             matrix = {r["industry"]: r for r in impact.get("impact_matrix", [])}
-            # LLM 未输出 affected_industries 时，直接取模型测算的影响矩阵前5行业
-            if not report.get("affected_industries"):
-                report["affected_industries"] = impact.get("impact_matrix", [])[:5]
-            # 数字强制以引擎结果为准：LLM 给的任何数值一律被模型值覆盖（防幻觉核心机制）
-            for row in report.get("affected_industries", []):
-                m = matrix.get(row.get("industry"))
-                debt = (m or {}).get("debt_ratio", 55)
-                # 1) 量化字段强制覆盖
-                pct = (m or {}).get("impact_pct", 0)
-                row["impact_pct"] = pct if isinstance(pct, (int, float)) else 0
-                for k in ("delta_output_yi", "direct_effect_yi", "indirect_effect_yi", "debt_ratio"):
-                    if k in m:  # Ghosh 矩阵无直接/间接效应分解，跳过缺失字段
-                        row[k] = m[k]
-                # 2) 行业风险评分：强制由评分模型重算（LLM 数字一律丢弃）
-                row["risk_score"] = risk_model.industry_risk_from_impact(
-                    row.get("industry", ""), pct, debt)["risk_score"]
+            # affected_industries 强制由模型影响矩阵重建：行业名、排序、全部数值、
+            # 风险评分/等级均来自受控引擎——LLM 连“哪5个行业进入结构化影响表”都没有决定权
+            rebuilt = []
+            for row_m in impact.get("impact_matrix", [])[:5]:
+                r = risk_model.industry_risk_from_impact(
+                    row_m["industry"], row_m.get("impact_pct", 0), row_m.get("debt_ratio", 55))
+                rebuilt.append({
+                    "industry": row_m["industry"],
+                    "impact_pct": row_m.get("impact_pct", 0),
+                    "delta_output_yi": row_m.get("delta_output_yi"),
+                    "direct_effect_yi": row_m.get("direct_effect_yi"),
+                    "indirect_effect_yi": row_m.get("indirect_effect_yi"),
+                    "debt_ratio": row_m.get("debt_ratio", 55),
+                    "risk_score": r["risk_score"],
+                    "risk_level": r["risk_level"],
+                })
+            report["affected_industries"] = rebuilt
             # 行业评分明细：强制由评分模型生成（不采纳 LLM 输出）
             if impact.get("impact_matrix"):
                 scores = []

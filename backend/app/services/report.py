@@ -43,19 +43,25 @@ def _industries_md(rows: list[dict]) -> str:
 
 
 def build_markdown(report: dict) -> str:
+    has_model = report.get("impact") is not None  # 是否有有效数量模型结果
     rs = report.get("risk_score")
-    rs_s = f"{rs}" if isinstance(rs, (int, float)) else "—"
+    rs_s = f"{rs}" if isinstance(rs, (int, float)) else "未计算"
     lines = [
         "# 房地产产业链风险分析报告",
-        f"\n> 分析问题：**{report.get('question', '')}**  \n> 综合风险评分：**{rs_s} / 100（{report.get('risk_level', '—')}）**  \n> 生成时间：{report.get('created_at', '')}",
+        f"\n> 分析问题：**{report.get('question', '')}**  "
+        + (f"\n> 综合风险评分：**{rs_s} / 100（{report.get('risk_level', '')}）**  " if has_model else "")
+        + f"\n> 生成时间：{report.get('created_at', '')}",
         "\n## 1. Executive Summary",
         "\n" + report.get("summary", ""),
-        "\n## 2. Risk Assessment",
-        f"\n- 综合风险评分：**{rs_s}**\n- 风险等级：**{report.get('risk_level', '—')}**",
-        "\n### 行业风险评分（多指标加权模型）",
     ]
-    for s in report.get("industry_scores", []):
-        lines.append(f"- **{s.get('industry', '—')}**：{s.get('risk_score', '—')}（{s.get('risk_level', '—')}）")
+    if has_model:
+        lines += [
+            "\n## 2. Risk Assessment",
+            f"\n- 综合风险评分：**{rs_s}**\n- 风险等级：**{report.get('risk_level', '—')}**",
+            "\n### 行业风险评分（多指标加权模型）",
+        ]
+        for s in report.get("industry_scores", []):
+            lines.append(f"- **{s.get('industry', '—')}**：{s.get('risk_score', '—')}（{s.get('risk_level', '—')}）")
     lines += ["\n## 3. Transmission Mechanism（传导机制）"]
     for i, step in enumerate(report.get("transmission_path", []), 1):
         lines.append(f"{i}. {step}")
@@ -74,7 +80,19 @@ def build_markdown(report: dict) -> str:
         if rules:
             lines.append("\n跨案例规律：")
             lines += [f"- {r}" for r in rules]
-    lines += ["\n## 4. Affected Industries（影响矩阵）", "\n" + _industries_md(report.get("affected_industries", []))]
+    if has_model:
+        lines += ["\n## 4. Affected Industries（影响矩阵）",
+                  "\n" + _industries_md(report.get("affected_industries", []))]
+    else:
+        lines += [
+            "\n## 4. 模型适用性说明",
+            "\n本次问题存在明确的冲击情景，但相关行业未通过当前 13 部门模型口径校验，"
+            "因此未执行数量测算，也不输出影响矩阵与风险评分。",
+            "\n系统不会将冲击强行映射到近似行业进行猜测性量化。若需继续分析，可：",
+            "- 明确行业至当前模型口径（房地产/建筑/钢铁/建材/化工/机械设备/家用电器/家具制造/"
+            "金融/批发零售/交通运输/电力热力/专业服务）后重新提问；",
+            "- 或参考知识库中相近行业的历史案例与传导机制。",
+        ]
     if report.get("similar_cases"):
         lines += ["\n### 历史对比"]
         for c in report["similar_cases"]:
