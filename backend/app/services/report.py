@@ -84,15 +84,35 @@ def build_markdown(report: dict) -> str:
         lines += ["\n## 4. Affected Industries（影响矩阵）",
                   "\n" + _industries_md(report.get("affected_industries", []))]
     else:
-        lines += [
-            "\n## 4. 模型适用性说明",
-            "\n本次问题存在明确的冲击情景，但相关行业未通过当前 13 部门模型口径校验，"
-            "因此未执行数量测算，也不输出影响矩阵与风险评分。",
-            "\n系统不会将冲击强行映射到近似行业进行猜测性量化。若需继续分析，可：",
-            "- 明确行业至当前模型口径（房地产/建筑/钢铁/建材/化工/机械设备/家用电器/家具制造/"
-            "金融/批发零售/交通运输/电力热力/专业服务）后重新提问；",
-            "- 或参考知识库中相近行业的历史案例与传导机制。",
-        ]
+        # 无模型结果：按 analysis_status 生成对应原因说明
+        status = report.get("analysis_status", "knowledge_only")
+        STATUS_NOTES = {
+            "sector_unresolved": (
+                "该问题属于数量型供给冲击，但问题中的行业无法映射至当前 13 部门模型口径，"
+                "因此未执行 Ghosh 数量测算。系统不会将其强行映射至近似行业。"),
+            "price_qualitative": (
+                "该问题属于价格/成本冲击。当前 Leontief/Ghosh 模块均为数量模型，"
+                "不用于直接量化价格效应，因此本次仅进行成本传导机制分析。"
+                "精确量化需进一步引入投入产出价格模型。"),
+            "asset_price_qualitative": (
+                "房价变化属于资产价格变化，不能直接等价为最终需求数量冲击，"
+                "因此不调用 Leontief/Ghosh 数量模型，本次仅分析财富效应、"
+                "抵押品渠道和投资预期渠道。"),
+            "missing_magnitude": (
+                "该问题未提供明确的量化冲击幅度，服务端不会自行假设默认值，"
+                "因此本次仅提供定性分析；如需数量测算，请明确冲击幅度。"),
+            "knowledge_only": None,  # 纯知识问答：不显示适用性说明
+        }
+        note = STATUS_NOTES.get(status)
+        if note:
+            lines += [
+                "\n## 4. 模型适用性说明",
+                f"\n{note}",
+                "\n系统不会将冲击强行映射到近似行业进行猜测性量化。若需继续分析，可：",
+                "- 明确行业至当前模型口径（房地产/建筑/钢铁/建材/化工/机械设备/家用电器/家具制造/"
+                "金融/批发零售/交通运输/电力热力/专业服务）后重新提问；",
+                "- 或参考知识库中相近行业的历史案例与传导机制。",
+            ]
     if report.get("similar_cases"):
         lines += ["\n### 历史对比"]
         for c in report["similar_cases"]:

@@ -36,7 +36,7 @@ SYSTEM_PROMPT = """你是「房地产产业链风险分析智能体」，一名�
 
 ## 量化字段的条件输出
 - 若数量模型（Leontief/Ghosh）已成功运行并返回结果：在上述 JSON 中附加
-  "risk_level" / "affected_industries" 字段（行业影响数值以工具返回为准，不得自行修改或新增行业）；
+  "risk_score" / "risk_level" / "affected_industries" 字段（行业影响数值以工具返回为准，不得自行修改或新增行业）；
 - 若数量模型未运行（守卫拦截/行业超出13部门口径）：**省略 risk_score、risk_level、affected_industries**，
   不要自行编造或猜测任何行业与数字，仅输出定性分析。"""
 
@@ -130,6 +130,7 @@ class RiskAgent:
         last_impact = None   # 最后一次产业链测算的完整结果
         last_cases = []      # 最后一次案例检索结果
         blocked_tools = set()  # 已被守卫拦截的工具（同问题内不再重试）
+        llm_analysis_status = None  # LLM 路径的分析状态（由最后一次有效模型推断）
         for _ in range(8):  # 最多 8 轮工具调用
             resp = self.client.chat.completions.create(
                 model=LLM_MODEL, messages=messages,
@@ -138,6 +139,19 @@ class RiskAgent:
             msg = resp.choices[0].message
             if not msg.tool_calls:
                 report = self._parse_report(msg.content or "")
+                # 分析状态推断：LLM 实际跑成的模型优先（quantified_*），
+                # 未跑模型时按问题语义定性（房价→资产价格 / 价格→成本 / 无幅度→知识问答）
+                if llm_analysis_status:
+                    final_status = llm_analysis_status
+                elif _is_house_price_shock(question):
+                    final_status = "asset_price_qualitative"
+                elif _is_price_shock(question):
+                    final_status = "price_qualitative"
+                elif not has_explicit_shock(question):
+                    final_status = "knowledge_only"
+                else:
+                    # 有冲击语义但 LLM 未跑成模型（如被守卫拦截）→ 按守卫原因归入定性
+                    final_status = "price_qualitative"
                 if report is None:
                     # LLM 输出不可解析 → 规则引擎生成完整结构化报告（数字有保证），LLM 原文作参考附注
                     llm_raw = (msg.content or "").strip()
@@ -147,10 +161,11 @@ class RiskAgent:
                     report["summary"] = str(report.get("summary", "")) + (
                         "｜注：LLM 最终输出未能解析为结构化报告（已回退结构化模板），"
                         "LLM 分析要点摘录：" + llm_raw[:260] + "…")
-                    report = self.finalize_report(report, last_impact, last_cases)
+                    # _rule_run 已内置正确的 analysis_status（含 sector_unresolved/missing 等），不覆盖
                     yield {"type": "final", "report": report}
                     return
-                report = self.finalize_report(report, last_impact, last_cases)
+                report = self.finalize_report(report, last_impact, last_cases,
+                                              status=final_status)
                 # 保险：问题要求结合上传数据但 LLM 未调用工具 → 直接融合数据摘要
                 if ctx.get("uploads") and any(k in question for k in ("上传", "数据文件")):
                     fid = next(iter(ctx["uploads"]))
@@ -179,6 +194,11 @@ class RiskAgent:
                 yield {"type": "tool", "status": "start", "tool": tc.function.name, "args": args}
                 # Canonical Scenario 校验与参数规范化已下沉至 execute_tool（单一守卫入口）
                 result = execute_tool(tc.function.name, args, ctx, question=question)
+                # 守卫拦截原因 → analysis_status（sector_unresolved/missing_magnitude）
+                if result.get("blocked") and "shock_percent" in str(result.get("error", "")):
+                    llm_analysis_status = "missing_magnitude"
+                elif result.get("blocked") and "映射" in str(result.get("error", "")):
+                    llm_analysis_status = "sector_unresolved"
                 # blocked（守卫拦截）/error 结果不进入 last_impact（防止空壳 dict 污染报告）
                 valid_model_result = (
                     not result.get("blocked") and not result.get("error")
@@ -189,8 +209,10 @@ class RiskAgent:
                     blocked_tools.add(tc.function.name)  # 记忆：同问题内不再重试该工具
                 if tc.function.name == "analyze_industry_chain_impact" and valid_model_result:
                     last_impact = result
+                    llm_analysis_status = "quantified_leontief"
                 elif tc.function.name == "analyze_supply_shock" and valid_model_result:
                     last_impact = result  # Ghosh 结果同样计入 impact（报告/矩阵共用）
+                    llm_analysis_status = "quantified_ghosh"
                 elif tc.function.name == "retrieve_similar_cases":
                     last_cases = result.get("cases", [])
                 yield {"type": "tool", "status": "done", "tool": tc.function.name, "args": args,
@@ -205,7 +227,8 @@ class RiskAgent:
         yield {"type": "final", "report": report}
 
     @staticmethod
-    def _enrich_report(report: dict, impact: dict | None, cases: list | None = None) -> dict:
+    def _enrich_report(report: dict, impact: dict | None, cases: list | None = None,
+                       status: str = "knowledge_only") -> dict:
         """把工具计算的完整量化数据合并回报告（LLM 只输出部分字段）"""
         if not isinstance(report, dict):
             return report
@@ -255,10 +278,12 @@ class RiskAgent:
             report.pop("industry_scores", None)
             report.pop("risk_score", None)
             report.pop("risk_level", None)
-            note = ("｜模型状态：本次未运行数量模型（行业/口径未通过模型适用性校验），"
-                    "不输出产业影响比例与风险评分；以下为基于知识库与产业机制的定性分析。")
-            if "模型状态" not in str(report.get("summary", "")):
-                report["summary"] = str(report.get("summary", "")) + note
+            reason = ANALYSIS_STATUS_META.get(status, {}).get("no_model_reason", "")
+            if reason:
+                report["no_model_reason"] = reason
+                note = "｜模型状态：" + reason
+                if "模型状态" not in str(report.get("summary", "")):
+                    report["summary"] = str(report.get("summary", "")) + note
         if isinstance(cases, list):
             # 案例工具结果是唯一权威来源：无条件覆盖（LLM/模板写的案例一律丢弃）
             report["similar_cases"] = [
@@ -269,13 +294,21 @@ class RiskAgent:
         return report
 
     @classmethod
-    def finalize_report(cls, report: dict, impact: dict | None, cases: list | None) -> dict:
+    def finalize_report(cls, report: dict, impact: dict | None, cases: list | None,
+                        status: str = "knowledge_only") -> dict:
         """统一后处理（LLM/规则引擎两路径共用）：
         1) 有有效 impact → 模型数字与评分强制覆盖，量化字段以引擎为准；
         2) 无有效 impact → 删除全部量化表与评分（宁可不给数字，也不乱算）；
-        3) 案例检索结果无条件覆盖（工具结果是唯一权威来源，LLM 不能自行创造案例）。"""
-        report = cls._enrich_report(report, impact, cases)
-        # 无有效模型结果时的数字清洗已在 _enrich_report 内完成（impact=None 分支）
+        3) 案例检索结果无条件覆盖（工具结果是唯一权威来源，LLM 不能自行创造案例）；
+        4) 写入 analysis_status 与 no_model_reason（解释"为什么有/没有数量模型结果"）。"""
+        report = cls._enrich_report(report, impact, cases, status=status)
+        meta = ANALYSIS_STATUS_META.get(status, ANALYSIS_STATUS_META["knowledge_only"])
+        report["analysis_status"] = status
+        report["analysis_status_label"] = meta["label"]
+        if meta["no_model_reason"]:
+            report["no_model_reason"] = meta["no_model_reason"]
+        elif "no_model_reason" in report:
+            report.pop("no_model_reason", None)
         return report
 
     @staticmethod
@@ -323,6 +356,7 @@ class RiskAgent:
         price_hit = _is_price_shock(q)
         house_price_hit = _is_house_price_shock(q)
         supply_sector_unresolved = False  # 供给冲击行业无法映射到13部门时置 True
+        analysis_status = "knowledge_only"  # 默认：知识问答（无量化冲击）
 
         impact = None
         if house_price_hit and not any(k in q for k in ("投资", "新开工", "销售面积", "施工")):
@@ -331,12 +365,14 @@ class RiskAgent:
                           "args": {"question": q},
                           "result_preview": "房价属资产价格变化，不直接等价于最终需求冲击，输出定性机制分析"})
             impact = None
+            analysis_status = "asset_price_qualitative"
         elif has_shock and price_hit:
             # 价格/成本冲击（如"涨价""成本上升"）属价格效应 → 不进数量模型，纯定性
             trace.append({"tool": "qualitative_price_analysis",
                           "args": {"question": q},
                           "result_preview": "价格效应不进入数量模型，输出定性机制分析"})
             impact = None
+            analysis_status = "price_qualitative"
         elif has_shock and supply_hit:
             # 数量型供给冲击 → Ghosh（行业识别失败则拒绝量化，不猜测默认行业）
             sector = _supply_sector(q)
@@ -346,14 +382,17 @@ class RiskAgent:
                               "result_preview": "无法将问题中的行业映射到模型13部门，拒绝量化并提示明确口径"})
                 impact = None
                 supply_sector_unresolved = True
+                analysis_status = "sector_unresolved"
             else:
                 impact = io.ghosh_supply_shock(sector, pct, direction)
+                analysis_status = "quantified_ghosh"
                 trace.append({"tool": "analyze_supply_shock",
                               "args": {"sector": sector, "shock_percent": pct, "direction": direction},
                               "result_preview": f"Ghosh供给侧：总产出变动 {impact.get('total_output_change_yi')} 亿元"})
         elif has_shock:
             # 数量型需求冲击 → Leontief
             impact = io.analyze_shock(pct, direction)
+            analysis_status = "quantified_leontief"
             trace.append({"tool": "analyze_industry_chain_impact",
                           "args": {"shock_percent": pct, "direction": direction},
                           "result_preview": f"Leontief需求侧：总产出变动 {impact['total_output_change_yi']} 亿元"})
@@ -387,22 +426,72 @@ class RiskAgent:
             rep = _compose_report(q, kb, None, [], agg, similar.get("cases", []),
                                   upload_summary, price_hit, house_price_hit,
                                   sector_unresolved=True)
-            rep = self.finalize_report(rep, None, [])  # 统一后处理：无数字+案例覆盖
+            rep = self.finalize_report(rep, None, [], status="sector_unresolved")  # 统一后处理
             return rep, trace
 
         rep = _compose_report(q, kb, impact, industry_scores, agg, similar.get("cases", []),
                               upload_summary, price_hit, house_price_hit)
-        rep = self.finalize_report(rep, impact, similar.get("cases", []))  # 统一后处理
+        rep = self.finalize_report(rep, impact, similar.get("cases", []),
+                                   status=analysis_status)  # 统一后处理
         return rep, trace
 
 
 # ---------------- 情景解析 ----------------
+
+
+def has_explicit_shock(question: str) -> bool:
+    """是否存在明确的数量冲击幅度（如'下降15%'、'减产10%'）。
+    模型运行的前提条件：没有明确幅度的问题不进入数量模型（防 LLM 脑补默认值）。"""
+    return bool(re.search(
+        r"(上升|上涨|增长|下跌|下降|回落|下滑|减产|收缩|供给收缩|供给下降)\s*\d+(\.\d+)?\s*%?",
+        question))
+
+
 # 数量型供给冲击关键词（Ghosh 模型的适用域）；"涨价"属价格效应，不做精确量化
 _SUPPLY_KWS = ("减产", "供给收缩", "供给下降", "停产", "限产", "供给减少")
 _PRICE_KWS = ("涨价", "价格上升", "价格上涨", "成本上升", "房价上涨", "房价下降",
               "房价下跌", "房价涨", "房价跌")  # 价格/资产估值冲击 → 定性提示，不进数量模型
 _DEMAND_BYPASS = ("房地产", "楼市", "销售", "投资", "需求")  # 注意：房价不在需求旁路（它属于价格维度）
 _HOUSE_PRICE_KWS = ("房价上涨", "房价下降", "房价下跌", "房价涨", "房价跌", "房价上升")
+
+# ---- 分析状态（analysis_status）：统一解释"为什么有/没有数量模型结果" ----
+ANALYSIS_STATUS_META = {
+    "quantified_leontief": {
+        "label": "Leontief 需求侧量化",
+        "no_model_reason": "",
+    },
+    "quantified_ghosh": {
+        "label": "Ghosh 供给侧量化",
+        "no_model_reason": "",
+    },
+    "sector_unresolved": {
+        "label": "行业超出模型口径",
+        "no_model_reason": ("该问题属于数量型供给冲击，但问题中的行业无法映射至当前 13 部门模型口径，"
+                            "因此未执行 Ghosh 数量测算。系统不会将其强行映射至近似行业。"
+                            "如需量化，请明确行业至当前口径后重新提问。"),
+    },
+    "price_qualitative": {
+        "label": "价格冲击定性分析",
+        "no_model_reason": ("该问题属于价格/成本冲击。当前 Leontief/Ghosh 模块均为数量模型，"
+                            "不用于直接量化价格效应，因此本次仅进行成本传导机制分析。"
+                            "精确量化需进一步引入投入产出价格模型。"),
+    },
+    "asset_price_qualitative": {
+        "label": "资产价格定性分析",
+        "no_model_reason": ("房价变化属于资产价格变化，不能直接等价为最终需求数量冲击，"
+                            "因此不调用 Leontief/Ghosh 数量模型，本次仅分析财富效应、"
+                            "抵押品渠道和投资预期渠道。"),
+    },
+    "missing_magnitude": {
+        "label": "缺少量化冲击幅度",
+        "no_model_reason": ("该问题未提供明确的量化冲击幅度，服务端不会自行假设默认值，"
+                            "因此本次仅提供定性分析；如需数量测算，请明确冲击幅度。"),
+    },
+    "knowledge_only": {
+        "label": "知识问答",
+        "no_model_reason": "",
+    },
+}
 
 
 def _is_house_price_shock(q: str) -> bool:
