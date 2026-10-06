@@ -107,8 +107,14 @@ def _stage_forecast(rows: list, shock_pct: float, direction: str, kind: str = "d
             "case_evidence": st["case_evidence"],
             "pressure": pressure,
         })
-    return {"framework": fw["framework"], "source": fw["source"],
-            "cross_case_rules": fw["cross_case_rules"], "stages": stages}
+    if kind == "supply":
+        meta = {"framework": fw.get("framework_supply", ""), "source": fw.get("source_supply", ""),
+                "cross_case_rules": fw.get("cross_case_rules_supply", [])}
+    else:
+        meta = {"framework": fw.get("framework", ""), "source": fw.get("source", ""),
+                "cross_case_rules": fw.get("cross_case_rules", [])}
+    meta["stages"] = stages
+    return meta
 
 
 def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str = "下降") -> dict:

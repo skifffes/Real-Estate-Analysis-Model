@@ -15,7 +15,7 @@ SYSTEM_PROMPT = """你是「房地产产业链风险分析智能体」，一名�
 1. 回答任何金融问题前，必须优先调用 search_knowledge_base 检索知识库获取依据。
 2. 涉及"房地产投资/房价/销售 上升/下降 X%"等最终需求情景问题时，必须调用 analyze_industry_chain_impact 运行 Leontief 需求侧模型。
 3. 涉及"某行业初始投入收缩/资源供给收缩/减产 X%"等数量型供给冲击时，调用 analyze_supply_shock 运行 Ghosh 供给侧模型（ΔX=ΔV·(I-B)⁻¹，B=D⁻¹Z 按卖方部门总产出系数化）。注意：数量型供给收缩情景被映射为同幅度初始投入冲击进行压力测试，两者非严格等价，表述时需说明。
-4. **价格/成本冲击（原材料涨价、价格上涨、成本上升）不调用任何数量模型**——它们属价格效应，Ghosh 数量框架不适用。此类问题只做定性机制分析（利润率压缩→产业链传导→替代缓冲），并注明"精确量化需投入产出价格模型，留作后续扩展"。
+4. **价格/成本冲击（原材料涨价、价格上涨、成本上升）与房价涨跌（资产价格/估值变化）不调用任何数量模型**——前者属价格效应，后者不能直接等价为最终需求数量冲击。此类问题只做定性机制分析（房价：财富效应/抵押品渠道/投资预期渠道），并注明"精确量化需价格模型或价格-需求弹性，留作后续扩展"。仅当问题同时包含明确的数量指标（投资/新开工/销售面积）时才进入数量模型。
 5. 对受影响最大的前几个行业调用 compute_risk_score 计算风险评分。
 6. 涉及风险评估时调用 retrieve_similar_cases 做历史对比。
 7. 若用户已上传数据（上下文中给出 file_id），调用 analyze_uploaded_data。
@@ -185,41 +185,41 @@ class RiskAgent:
         if not isinstance(report, dict):
             return report
         if impact:
-            report.setdefault("impact", impact)
+            report["impact"] = impact  # 模型结果强制覆盖（LLM 不产生数字）
+            # 口径声明强制追加到摘要尾部（LLM 措辞不受控，用固定声明保证口径一致）
+            disclaimer = ("｜口径说明：本结果为基于北京市2023年投入产出表的13部门需求/供给侧"
+                          "关联压力情景测算，不解释为北京市各行业实际产出变化的确定性预测。")
+            if "口径说明" not in str(report.get("summary", "")):
+                report["summary"] = str(report.get("summary", "")) + disclaimer
             matrix = {r["industry"]: r for r in impact.get("impact_matrix", [])}
             # LLM 未输出 affected_industries 时，直接取模型测算的影响矩阵前5行业
             if not report.get("affected_industries"):
                 report["affected_industries"] = impact.get("impact_matrix", [])[:5]
-            # 统一补齐风险评分（模型行无评分字段）
-            for row in report.get("affected_industries", []):
-                if not isinstance(row.get("risk_score"), (int, float)):
-                    m = matrix.get(row.get("industry"))
-                    debt = (m or {}).get("debt_ratio", 55)
-                    pct = row.get("impact_pct") or (m or {}).get("impact_pct", 0)
-                    row["risk_score"] = risk_model.industry_risk_from_impact(
-                        row.get("industry", ""), pct, debt)["risk_score"]
-            # LLM 未输出行业评分明细 → 从影响矩阵前5行业生成（收入/债务/现金流/需求四指标加权）
-            if not report.get("industry_scores"):
-                scores = []
-                for row in impact.get("impact_matrix", [])[:5]:
-                    r = risk_model.industry_risk_from_impact(
-                        row["industry"], row.get("impact_pct", 0), row.get("debt_ratio", 55))
-                    scores.append({"industry": row["industry"], "risk_score": r["risk_score"],
-                                    "risk_level": r["risk_level"]})
-                if scores:
-                    report["industry_scores"] = scores
-                    # 综合评分缺失时同步补齐
-                    if not isinstance(report.get("risk_score"), (int, float)):
-                        agg = risk_model.aggregate_risk(scores)
-                        report["risk_score"], report["risk_level"] = agg["risk_score"], agg["risk_level"]
+            # 数字强制以引擎结果为准：LLM 给的任何数值一律被模型值覆盖（防幻觉核心机制）
             for row in report.get("affected_industries", []):
                 m = matrix.get(row.get("industry"))
-                if m:
-                    for k in ("impact_pct", "delta_output_yi", "direct_effect_yi",
-                              "indirect_effect_yi", "debt_ratio"):
-                        if k not in row or not isinstance(row.get(k), (int, float)):
-                            if k in m:  # Ghosh 矩阵无直接/间接效应分解，跳过缺失字段
-                                row[k] = m[k]
+                debt = (m or {}).get("debt_ratio", 55)
+                # 1) 量化字段强制覆盖
+                pct = (m or {}).get("impact_pct", 0)
+                row["impact_pct"] = pct if isinstance(pct, (int, float)) else 0
+                for k in ("delta_output_yi", "direct_effect_yi", "indirect_effect_yi", "debt_ratio"):
+                    if k in m:  # Ghosh 矩阵无直接/间接效应分解，跳过缺失字段
+                        row[k] = m[k]
+                # 2) 行业风险评分：强制由评分模型重算（LLM 数字一律丢弃）
+                row["risk_score"] = risk_model.industry_risk_from_impact(
+                    row.get("industry", ""), pct, debt)["risk_score"]
+            # 行业评分明细：强制由评分模型生成（不采纳 LLM 输出）
+            if impact.get("impact_matrix"):
+                scores = []
+                for row_m in impact.get("impact_matrix", [])[:5]:
+                    r = risk_model.industry_risk_from_impact(
+                        row_m["industry"], row_m.get("impact_pct", 0), row_m.get("debt_ratio", 55))
+                    scores.append({"industry": row_m["industry"], "risk_score": r["risk_score"],
+                                    "risk_level": r["risk_level"]})
+                report["industry_scores"] = scores
+                # 综合评分：强制由评分模型聚合（LLM 数字一律丢弃）
+                agg = risk_model.aggregate_risk(scores)
+                report["risk_score"], report["risk_level"] = agg["risk_score"], agg["risk_level"]
         if cases:
             report.setdefault("similar_cases", [
                 {"title": c["title"], "year": c.get("year"),
@@ -267,19 +267,20 @@ class RiskAgent:
         kb = rag.search(q, 3)
         trace.append({"tool": "search_knowledge_base", "args": {"query": q}, "result_preview": f"{len(kb)} 条命中"})
 
-        # 2. 解析冲击情景（需求侧 / 供给侧 / 价格效应自动判别）
+        # 2. 解析冲击情景（需求侧 / 供给侧 / 价格与资产价格效应自动判别）
         pct, direction, has_shock = _parse_shock(q)
         supply_hit = _is_supply_side(q)
         price_hit = _is_price_shock(q)
+        house_price_hit = _is_house_price_shock(q)
 
         impact = None
-        if has_shock and price_hit:
-            # 价格/成本冲击（如"涨价"）属价格效应，不做数量模型精确测算 → 纯定性分析
-            trace.append({"tool": "qualitative_price_analysis",
+        if house_price_hit and not any(k in q for k in ("投资", "新开工", "销售面积", "施工")):
+            # 房价涨跌 = 资产价格/估值变化，不直接等价于最终需求数量变化 → 定性分析
+            trace.append({"tool": "qualitative_asset_price_analysis",
                           "args": {"question": q},
-                          "result_preview": "价格效应不进入数量模型，输出定性机制分析"})
-            impact = None  # 跳过 Leontief/Ghosh 数量测算
-        elif has_shock:
+                          "result_preview": "房价属资产价格变化，不直接等价于最终需求冲击，输出定性机制分析"})
+            impact = None
+        elif has_shock and price_hit:
             if supply_hit:
                 sector = _supply_sector(q)
                 impact = io.ghosh_supply_shock(sector, pct, direction)
@@ -315,14 +316,21 @@ class RiskAgent:
             trace.append({"tool": "analyze_uploaded_data", "args": {"file_id": fid}, "result_preview": "已分析"})
 
         return _compose_report(q, kb, impact, industry_scores, agg, similar.get("cases", []),
-                               upload_summary, price_hit), trace
+                               upload_summary, price_hit, house_price_hit), trace
 
 
 # ---------------- 情景解析 ----------------
 # 数量型供给冲击关键词（Ghosh 模型的适用域）；"涨价"属价格效应，不做精确量化
 _SUPPLY_KWS = ("减产", "供给收缩", "供给下降", "停产", "限产", "供给减少")
-_PRICE_KWS = ("涨价", "价格上升", "价格上涨", "成本上升")  # 价格/成本冲击 → 定性提示，不进Ghosh数量模型
-_DEMAND_BYPASS = ("房地产", "楼市", "房价", "销售", "投资", "需求")
+_PRICE_KWS = ("涨价", "价格上升", "价格上涨", "成本上升", "房价上涨", "房价下降",
+              "房价下跌", "房价涨", "房价跌")  # 价格/资产估值冲击 → 定性提示，不进数量模型
+_DEMAND_BYPASS = ("房地产", "楼市", "销售", "投资", "需求")  # 注意：房价不在需求旁路（它属于价格维度）
+_HOUSE_PRICE_KWS = ("房价上涨", "房价下降", "房价下跌", "房价涨", "房价跌", "房价上升")
+
+
+def _is_house_price_shock(q: str) -> bool:
+    """房价涨跌 = 资产价格/估值变化，不直接等价于最终需求数量变化 → 定性分析"""
+    return any(k in q for k in _HOUSE_PRICE_KWS)
 
 
 def _is_price_shock(q: str) -> bool:
@@ -359,8 +367,33 @@ def _parse_shock(q: str) -> tuple[float, str, bool]:
 
 # ---------------- 报告组装 ----------------
 def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, upload_summary,
-                    price_hit: bool = False) -> dict:
+                    price_hit: bool = False, house_price_hit: bool = False) -> dict:
     kb_sources = [f"[{k['category']}] {k['source']}" for k in kb[:3]]
+    if house_price_hit and impact is None:
+        # 房价涨跌：资产价格/估值变化，不直接等价于最终需求数量冲击 → 定性分析
+        return {
+            "question": question,
+            "summary": (
+                f"针对「{question}」：房价变化属于资产价格/估值变化，不能直接等价为最终需求数量冲击，"
+                f"因此系统不套用 Leontief/Ghosh 数量模型做精确测算。定性传导机制：房价变动通过三条渠道"
+                f"影响产业链——财富效应（居民住房财富变化影响耐用品消费）、抵押品渠道（抵押价值变化影响"
+                f"房企与家庭的融资能力）、投资预期渠道（销售预期决定新开工与投资意愿）。"
+                f"若需量化房价→投资的传导，需引入价格-需求弹性或资产价格模块，留作后续扩展。"
+            ),
+            "risk_level": "关注",
+            "data_basis": kb_sources,
+            "transmission_path": [
+                "房价变动（资产价格/估值变化）",
+                "财富效应：居民住房财富变化 → 耐用品消费调整",
+                "抵押品渠道：抵押价值变化 → 房企与家庭融资能力变化",
+                "投资预期渠道：销售预期 → 新开工与投资意愿调整",
+                "上述渠道再触发产业链数量型传导（可先用需求侧模型做压力测试）",
+            ],
+            "model_basis": "房价冲击属资产价格变化，与最终需求数量冲击性质不同；"
+                           "精确量化需价格-需求弹性模块或资产价格传导模型，留作后续扩展",
+            "key_indicators": ["70城房价指数环比", "二手房挂牌量与成交周期", "居民中长期贷款",
+                               "新开工面积同比（先行确认）"],
+        }
     if price_hit and impact is None:
         # 价格/成本冲击：定性机制分析，不进入数量模型
         return {
@@ -391,8 +424,8 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
         if is_ghosh:
             summary = (
                 f"针对「{question}」：基于Ghosh供给侧模型（标准供给分配口径 B=D⁻¹Z）测算，情景「{impact['scenario']}」"
-                f"将通过中间投入成本渠道导致全行业总产出变动约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
-                f"（占总产出 {abs(impact['total_output_change_pct'])}%）。"
+                f"将通过中间投入成本渠道带来产业关联层面的总产出情景变动约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
+                f"（占地区总产出 {abs(impact['total_output_change_pct'])}%）。"
                 f"受影响最大的行业依次为：{top_desc}。"
                 f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"
                 f"供给侧冲击沿'上游供给收缩 → 中间投入成本上升 → 下游生产受阻'传导，"
@@ -412,13 +445,14 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
             ]
         else:
             summary = (
-                f"针对「{question}」：基于14部门投入产出模型测算，情景「{impact['scenario']}」"
-                f"将导致国民经济总产出变动约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
-                f"（占总产出 {abs(impact['total_output_change_pct'])}%）。"
+                f"针对「{question}」：基于13部门投入产出模型（北京市2023年表）测算，情景「{impact['scenario']}」"
+                f"将导致投入需求端的产业关联压力约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
+                f"（占地区总产出 {abs(impact['total_output_change_pct'])}%）。"
                 f"受影响最大的行业依次为：{top_desc}。"
                 f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"
                 f"传导路径为：房地产投资收缩 → 上游原材料需求下降 → 中游建造活动放缓 → 下游耐用品消费承压，"
-                f"并通过金融渠道放大。"
+                f"并通过金融渠道放大。该结果为需求侧投入关联的情景测算，"
+                f"不解释为北京市各行业实际产出变化的确定性预测。"
             )
             model_basis = (f"列昂惕夫投入产出模型 X=(I-A)^(-1)Y：房地产乘数 {impact['real_estate_multiplier']}、"
                            f"建筑业乘数 {impact['construction_multiplier']}；冲击情景：{impact['scenario']}")
