@@ -165,6 +165,20 @@ class RiskAgent:
                     pct = row.get("impact_pct") or (m or {}).get("impact_pct", 0)
                     row["risk_score"] = risk_model.industry_risk_from_impact(
                         row.get("industry", ""), pct, debt)["risk_score"]
+            # LLM 未输出行业评分明细 → 从影响矩阵前5行业生成（收入/债务/现金流/需求四指标加权）
+            if not report.get("industry_scores"):
+                scores = []
+                for row in impact.get("impact_matrix", [])[:5]:
+                    r = risk_model.industry_risk_from_impact(
+                        row["industry"], row.get("impact_pct", 0), row.get("debt_ratio", 55))
+                    scores.append({"industry": row["industry"], "risk_score": r["risk_score"],
+                                    "risk_level": r["risk_level"]})
+                if scores:
+                    report["industry_scores"] = scores
+                    # 综合评分缺失时同步补齐
+                    if not isinstance(report.get("risk_score"), (int, float)):
+                        agg = risk_model.aggregate_risk(scores)
+                        report["risk_score"], report["risk_level"] = agg["risk_score"], agg["risk_level"]
             for row in report.get("affected_industries", []):
                 m = matrix.get(row.get("industry"))
                 if m:
@@ -337,9 +351,9 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
                 "下游承压：家电、家具等后周期消费需求下滑（收入-消费渠道）",
                 "金融传导：房企信用风险暴露，银行敞口与抵押品价值承压（金融加速器渠道）",
             ]
-        # 传导三阶段预判（六案例归纳框架，素材文档第四章）
+        # 传导三阶段预判（需求侧：六案例归纳框架；供给侧：成本推动框架）
         stages = impact.get("transmission_stages", {})
-        if stages and not is_ghosh:
+        if stages:
             st_desc = " → ".join(
                 f"{s['name']}({s['window'].split(' ')[-2]}{s['window'].split(' ')[-1]}，压力{s['pressure']})"
                 for s in stages.get("stages", []))

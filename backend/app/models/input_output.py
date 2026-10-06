@@ -76,18 +76,21 @@ def analyze_shock(shock_percent: float, direction: str = "下降",
     }
 
 
-def _stage_forecast(rows: list, shock_pct: float, direction: str) -> dict:
-    """传导三阶段预判：把冲击映射到六案例归纳的阶段框架（素材文档第四章）"""
+def _stage_forecast(rows: list, shock_pct: float, direction: str, kind: str = "demand") -> dict:
+    """传导三阶段预判：需求侧用六案例归纳框架，供给侧用成本推动框架"""
     import json as _json
     from ..config import DATA_DIR as _DD
     try:
         fw = _json.loads((_DD / "transmission_stages.json").read_text(encoding="utf-8"))
     except Exception:
         return {}
+    stage_list = fw.get("stages_supply") if kind == "supply" else fw.get("stages")
+    if not stage_list:
+        return {}
     impact_by_ind = {r["industry"]: r["impact_pct"] for r in rows}
     severity = min(abs(shock_pct) / 30.0, 1.0)  # 冲击幅度 → 严重度 0~1
     stages = []
-    for st in fw["stages"]:
+    for st in stage_list:
         # 各阶段命中行业 × 该行业受冲击幅度 → 阶段压力分（0~100）
         hits = []
         for ind in st["hit_industries"]:
@@ -138,6 +141,7 @@ def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str =
         "sector_order": SECTOR_NAMES,
         "impact_matrix": rows,
         "total_output_change_yi": round(float(dX.sum()), 1),
+        "transmission_stages": _stage_forecast(rows, shock_percent, direction, kind="supply"),
         "total_output_change_pct": round(float(dX.sum()) / float(X_BASE.sum()) * 100, 3),
         "real_estate_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("房地产")), 2),
         "construction_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("建筑业")), 2),
