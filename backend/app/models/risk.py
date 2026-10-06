@@ -1,4 +1,10 @@
-"""Tool 2: 风险评分模型（0-100，多指标加权）"""
+"""Tool 2: 风险评分模型（0-100，多指标加权）
+
+口径说明（重要）：产业链情景分析中的"情景风险评分"为横向压力比较指标——
+收入/现金流/市场需求分项由产业冲击测算结果经规则映射得到（代理变量），
+债务分项采用行业基准负债率。该评分用于比较不同受冲击行业的相对压力，
+并非企业信用评级。
+"""
 import math
 
 
@@ -58,7 +64,10 @@ def compute_risk_score(revenue_change: float, debt_ratio: float,
 
 
 def industry_risk_from_impact(industry: str, impact_pct: float, debt_ratio: float) -> dict:
-    """由产业链冲击结果推导行业风险评分"""
+    """由产业链冲击结果推导情景风险评分（横向压力比较口径）。
+    代理变量映射：产出变动→收入变化（直接）、现金流（×1.5 放大）、市场需求（×0.8）；
+    债务分项采用行业基准负债率（独立输入）。该评分用于受冲击行业间的横向压力比较，
+    并非企业信用评级。"""
     return compute_risk_score(
         revenue_change=impact_pct,          # 产出变动近似收入变动
         debt_ratio=debt_ratio,

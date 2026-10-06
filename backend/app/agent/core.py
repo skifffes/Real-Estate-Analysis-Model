@@ -162,9 +162,14 @@ class RiskAgent:
                 args = json.loads(tc.function.arguments or "{}")
                 yield {"type": "tool", "status": "start", "tool": tc.function.name, "args": args}
                 result = execute_tool(tc.function.name, args, ctx, question=question)  # 服务端路由校验
-                if tc.function.name == "analyze_industry_chain_impact":
+                # blocked（守卫拦截）/error 结果不进入 last_impact（防止空壳 dict 污染报告）
+                valid_model_result = (
+                    not result.get("blocked") and not result.get("error")
+                    and "impact_matrix" in result
+                )
+                if tc.function.name == "analyze_industry_chain_impact" and valid_model_result:
                     last_impact = result
-                elif tc.function.name == "analyze_supply_shock":
+                elif tc.function.name == "analyze_supply_shock" and valid_model_result:
                     last_impact = result  # Ghosh 结果同样计入 impact（报告/矩阵共用）
                 elif tc.function.name == "retrieve_similar_cases":
                     last_cases = result.get("cases", [])

@@ -54,7 +54,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "compute_risk_score",
-            "description": "多指标加权风险评分模型（0-100），输入行业收入变化、债务水平、现金流变化、市场需求变化。",
+            "description": "情景风险评分模型（0-100，横向压力比较口径）：四指标加权（收入/债务/现金流/市场需求）。注意：产业链情景中收入、现金流、市场需求分项由冲击测算结果经规则映射得到（代理变量），债务分项采用行业基准负债率；该评分用于受冲击行业间的横向压力比较，并非企业信用评级。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -111,15 +111,16 @@ TOOL_SCHEMAS = [
 def execute_tool(name: str, arguments: dict, ctx: dict | None = None,
                  question: str = "") -> dict:
     """统一工具执行入口。ctx: {'uploads': {file_id: summary}}
-    服务端路由校验：即使 LLM 发出错误 tool call，数量模型也不会被价格/房价类问题触发。"""
+    完整路由守卫：校验 LLM 选择的模型与问题语义是否匹配（服务端硬校验，
+    即使 LLM 发错 tool call 也不会执行错误模型）。"""
     ctx = ctx or {}
-    # ---- 服务端路由校验（架构级保证，不依赖提示词遵守） ----
-    from .core_guards import quantity_model_allowed
+    # ---- 服务端路由守卫 ----
+    from .core_guards import check_tool_allowed
     if name in ("analyze_industry_chain_impact", "analyze_supply_shock"):
-        allowed, reason = quantity_model_allowed(question)
+        allowed, reason = check_tool_allowed(name, question)
         if not allowed:
             return {"blocked": True, "reason": reason,
-                    "note": "价格/资产价格冲击不进入数量模型，请改用定性机制分析"}
+                    "note": "已按模型适用边界拦截本次数量模型调用，请改用定性分析或正确模型"}
     if name == "search_knowledge_base":
         return {"results": rag.search(arguments.get("query", ""), arguments.get("top_k", 4))}
     if name == "analyze_industry_chain_impact":
