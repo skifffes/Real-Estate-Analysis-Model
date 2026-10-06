@@ -1,0 +1,367 @@
+<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>技术实现报告：前后端架构与数据</title><style>
+body { font-family: "PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+       max-width: 900px; margin: 0 auto; padding: 32px 24px;
+       color: #1e293b; background: #f8fafc; line-height: 1.75; }
+h1 { color: #1d4ed8; border-bottom: 3px solid #3b82f6; padding-bottom: 10px; }
+h2 { color: #1e40af; margin-top: 36px; border-left: 4px solid #3b82f6; padding-left: 12px; }
+h3 { color: #334155; margin-top: 24px; }
+blockquote { background: #eff6ff; border-left: 4px solid #93c5fd;
+             margin: 16px 0; padding: 10px 16px; border-radius: 0 8px 8px 0; color: #3730a3; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; background: #fff; font-size: 14px; }
+th, td { border: 1px solid #cbd5e1; padding: 7px 11px; text-align: left; }
+th { background: #dbeafe; color: #1e3a8a; }
+tr:nth-child(even) td { background: #f1f5f9; }
+pre { background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px;
+      overflow-x: auto; font-size: 12.5px; line-height: 1.5; }
+code { background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #be185d; }
+pre code { background: none; color: inherit; padding: 0; }
+hr { border: none; border-top: 1px solid #cbd5e1; margin: 28px 0; }
+li { margin: 4px 0; }
+strong { color: #0f172a; }
+</style></head><body><h1>技术实现报告：前后端架构与数据说明</h1>
+<blockquote>
+<p>项目：房地产产业链风险分析智能体（Real Estate Supply Chain Risk Intelligence Agent）
+本文聚焦<strong>技术实现</strong>：用了什么数据、后端做了什么、前端做了什么。研究结论与经济规律分析由金融方向成员负责，不在本文范围。</p>
+</blockquote>
+<hr />
+<h2>一、数据资产清单</h2>
+<h3>1.1 模型数据（后端计算引擎直接读取）</h3>
+<table>
+<thead>
+<tr>
+<th>数据</th>
+<th>文件</th>
+<th>来源</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>投入产出 A 矩阵</td>
+<td><code>backend/app/data/io_table.json</code></td>
+<td>北京市2023年投入产出表（42部门基本表），聚合为13部门</td>
+<td>Leontief 需求侧冲击测算</td>
+</tr>
+<tr>
+<td>多年份矩阵</td>
+<td><code>io_multiyear.json</code></td>
+<td>北京2012/2017/2023三张表</td>
+<td>乘数时序演变分析</td>
+</tr>
+<tr>
+<td>真实行业负债率</td>
+<td><code>io_table.json</code> 内嵌</td>
+<td>房地产：国资委全行业口径（2024=67.8%）；建筑/钢铁/建材/家电：申万三级行业近5年均值</td>
+<td>风险评分的债务分项</td>
+</tr>
+<tr>
+<td>宏观月度序列</td>
+<td><code>macro_monthly.json</code></td>
+<td>Wind/国家统计局，2021-10~2026-08，9个序列（销售/投资/新开工/施工/水泥/粗钢/玻璃/PPI）</td>
+<td>Dashboard 传导验证图、行业画像</td>
+</tr>
+<tr>
+<td>房地产财务长序列</td>
+<td><code>industry_finance.json</code></td>
+<td>国资委口径，2000-2024年度（资产负债率/现金流动负债比/带息负债比）</td>
+<td>行业风险历史校准</td>
+</tr>
+<tr>
+<td>三阶段传导框架</td>
+<td><code>transmission_stages.json</code></td>
+<td>需求侧：六出险房企案例归纳；供给侧：成本推动逻辑</td>
+<td>冲击分析的阶段化预判</td>
+</tr>
+<tr>
+<td>历史案例库</td>
+<td><code>cases.json</code></td>
+<td>9个结构化案例（日本1990/美国2008/海南1992 + 恒大/融创/碧桂园/金科/世茂/阳光城）</td>
+<td>案例检索工具</td>
+</tr>
+</tbody>
+</table>
+<h3>1.2 知识库（RAG 检索语料）</h3>
+<ul>
+<li><strong>61 篇文献/资料转换文本</strong>（<code>backend/app/knowledge/documents/imported_*.md</code>）：期刊论文 42 篇、券商深度研报 2 篇（中泰/东吴）、传导机制分析 2 篇（含 8.2 万字素材文档）、北京投入产出表系列（2002-2023 各年份）、统计报告</li>
+<li><strong>6 篇核心自建文档</strong>（投入产出原理/产业链结构/政策摘要/案例综述/监测指标/传导机制）</li>
+<li>切片后 <strong>8100+ 向量</strong>，Chroma 持久化存储</li>
+</ul>
+<hr />
+<h2>二、后端架构（Python FastAPI）</h2>
+<h3>2.1 分层结构</h3>
+<pre><code>backend/app/
+├── main.py              # FastAPI 入口：18个REST接口 + SSE流式 + 生命周期管理
+├── config.py            # 配置（LLM Key/目录）
+├── agent/
+│   ├── core.py          # Agent核心：LLM Function Calling循环 + 规则引擎降级（双模式）
+│   └── tools.py         # 7个工具Schema（OpenAI协议）+ 统一执行分发
+├── knowledge/
+│   ├── rag.py           # RAG引擎：混合检索（MiniLM语义+bigram关键词，RRF融合）
+│   └── cases.py         # 案例相似度检索（bigram+触发路径加权）
+├── models/
+│   ├── input_output.py  # 双模型引擎：Leontief需求侧 + Ghosh供给侧 + 三阶段预判
+│   └── risk.py          # 风险评分模型（四指标加权，行业/系统性两级）
+└── services/
+    ├── store.py         # SQLite持久化（报告/上传，WAL模式，重启恢复）
+    ├── report.py        # Markdown报告生成（六章结构）
+    └── upload.py         # CSV/Excel解析 + 风险指标识别
+</code></pre>
+<h3>2.2 核心接口</h3>
+<table>
+<thead>
+<tr>
+<th>接口</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /api/chat</code></td>
+<td>同步问答（返回结构化报告 JSON）</td>
+</tr>
+<tr>
+<td><code>GET /api/chat/stream</code></td>
+<td><strong>SSE 流式</strong>：实时推送工具调用轨迹（"→执行中/✓完成"逐条显示）</td>
+</tr>
+<tr>
+<td><code>POST /api/upload</code></td>
+<td>数据上传（自动统计画像 + 指标识别 + 风险评分）</td>
+</tr>
+<tr>
+<td><code>GET /api/uploads</code> <code>/api/upload/{fid}</code> <code>/raw</code></td>
+<td>上传文件列表/详情/原文查看</td>
+</tr>
+<tr>
+<td><code>GET /api/dashboard</code></td>
+<td>仪表盘聚合数据（评分/图谱/月度序列/三阶段）</td>
+</tr>
+<tr>
+<td><code>GET /api/industry/{name}</code></td>
+<td>节点画像（消耗结构/乘数/负债率/最新月度）</td>
+</tr>
+<tr>
+<td><code>GET/DELETE /api/report(s)</code></td>
+<td>报告查询与删除（三层同步：内存+SQLite+MD文件）</td>
+</tr>
+</tbody>
+</table>
+<h3>2.3 Agent 工具层（7 个）</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>引擎</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>search_knowledge_base</code></td>
+<td>混合检索</td>
+<td>回答金融问题前强制调用</td>
+</tr>
+<tr>
+<td><code>analyze_industry_chain_impact</code></td>
+<td>Leontief</td>
+<td>需求侧冲击 → 影响矩阵（直接+间接效应分解、乘数）</td>
+</tr>
+<tr>
+<td><code>analyze_supply_shock</code></td>
+<td><strong>Ghosh</strong></td>
+<td>供给侧冲击 → 成本推动传导（"钢铁减产"类问题自动路由）</td>
+</tr>
+<tr>
+<td><code>compute_risk_score</code></td>
+<td>加权模型</td>
+<td>行业风险评分 0-100</td>
+</tr>
+<tr>
+<td><code>retrieve_similar_cases</code></td>
+<td>案例库</td>
+<td>9个结构化案例检索</td>
+</tr>
+<tr>
+<td><code>analyze_uploaded_data</code></td>
+<td>pandas</td>
+<td>用户上传数据融合</td>
+</tr>
+<tr>
+<td><code>get_dashboard_data</code></td>
+<td>—</td>
+<td>仪表盘数据</td>
+</tr>
+</tbody>
+</table>
+<h3>2.4 可靠性设计（比赛现场不翻车的保证）</h3>
+<ol>
+<li><strong>双模式</strong>：LLM 不可用/输出解析失败 → 自动降级规则引擎，全功能保持</li>
+<li><strong>数字与文字分离</strong>：所有测算数值由模型引擎确定性计算，LLM 只负责解读（杜绝幻觉数字）</li>
+<li><strong>字段兜底</strong>：<code>_enrich_report</code> 确保影响矩阵/评分明细/三阶段/案例在两种模式下结构一致</li>
+<li><strong>检索三级降级</strong>：MiniLM 语义 → bigram 词袋 → 纯关键词（无网/无模型均可检索）</li>
+<li><strong>持久化</strong>：SQLite 落库，服务重启零丢失</li>
+</ol>
+<h3>2.5 工具链脚本（testdata/，全程可复现）</h3>
+<table>
+<thead>
+<tr>
+<th>脚本</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>extract_io_2023.py</code> / <code>extract_io_table.py</code></td>
+<td>官方投入产出表 xls → 13部门 A 矩阵</td>
+</tr>
+<tr>
+<td><code>extract_multiyear.py</code></td>
+<td>2012/2017/2023 三年份提取与对比</td>
+</tr>
+<tr>
+<td><code>import_documents.py</code></td>
+<td>PDF/DOCX/XLS 批量转知识库文档</td>
+</tr>
+<tr>
+<td><code>import_real_data.py</code></td>
+<td>真实负债率/月度序列入库</td>
+</tr>
+<tr>
+<td><code>extract_cases.py</code> / <code>upgrade_case_impacts.py</code></td>
+<td>案例结构化与量化升级</td>
+</tr>
+<tr>
+<td><code>smoke_test.py</code> 等验证脚本</td>
+<td>各功能回归测试</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>三、前端架构（React + Vite + Tailwind + ECharts）</h2>
+<h3>3.1 页面结构</h3>
+<pre><code>frontend/src/
+├── App.jsx                 # 侧边栏导航（4页）
+├── api.js                  # Axios封装 + 风险配色映射
+├── components/
+│   ├── Chart.jsx           # ECharts通用封装（StrictMode安全）
+│   └── ForceGraph.jsx      # 力导向产业链图谱（防抖三保险+自适应填充+节点点击）
+└── pages/
+    ├── Home.jsx            # 智能问答：SSE流式轨迹 + 结构化报告卡 + 对话删除
+    ├── Dashboard.jsx       # 风险仪表盘：9个可视化模块
+    ├── Upload.jsx          # 数据上传：拖拽+统计画像+文件列表管理
+    └── Reports.jsx         # 报告中心：Markdown渲染+MD/PDF导出+删除
+</code></pre>
+<h3>3.2 Dashboard 可视化清单</h3>
+<table>
+<thead>
+<tr>
+<th>模块</th>
+<th>图表类型</th>
+<th>数据源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>综合风险评分</td>
+<td>仪表盘（Gauge）</td>
+<td>风险评分模型</td>
+</tr>
+<tr>
+<td>行业影响</td>
+<td>条形图（标注供给侧/需求侧模型徽章）</td>
+<td>双模型引擎</td>
+</tr>
+<tr>
+<td>产业链传导图谱</td>
+<td>力导向图（55+连线=消耗系数≥0.03，节点大小=冲击度，点击弹画像卡）</td>
+<td>A 矩阵</td>
+</tr>
+<tr>
+<td>历史对比</td>
+<td>折线图（地产投资 vs GDP，2015-2024）</td>
+<td>macro_history</td>
+</tr>
+<tr>
+<td>案例对标</td>
+<td>列表卡（含量化影响）</td>
+<td>案例库</td>
+</tr>
+<tr>
+<td>建议关注指标</td>
+<td>标签墙</td>
+<td>Agent 输出</td>
+</tr>
+<tr>
+<td><strong>传导验证</strong></td>
+<td>五线月度折线（2021-10~2026-08 真实数据，断点插补+connectNulls）</td>
+<td>macro_monthly</td>
+</tr>
+<tr>
+<td><strong>三阶段预判</strong></td>
+<td>三栏压力卡（红/橙/绿）</td>
+<td>三阶段框架</td>
+</tr>
+<tr>
+<td>行业评分明细</td>
+<td>网格卡（五列）</td>
+<td>评分模型</td>
+</tr>
+</tbody>
+</table>
+<h3>3.3 关键交互实现</h3>
+<ul>
+<li><strong>SSE 流式</strong>：<code>fetch + ReadableStream</code> 逐行解析，Agent 每个工具调用实时显示（"→ search_knowledge_base 执行中…"→"✓ 完成+结果预览"）</li>
+<li><strong>图谱防抖</strong>：初始隐藏 + 力学收敛 3.2s 后淡入（React StrictMode 兼容）</li>
+<li><strong>节点画像</strong>：点击图谱节点 → 侧边卡展示该行业 A 矩阵消耗结构条形图/乘数/负债率口径/最新月度值</li>
+<li><strong>导出 PDF</strong>：<code>@media print</code> 解除滚动容器限制，长报告正确分页</li>
+<li><strong>删除功能</strong>：对话成对删除（连带报告中心记录）、报告单删/全删（三层同步）</li>
+</ul>
+<h3>3.4 视觉体系</h3>
+<p>深色金融风（slate-950 基调）：玻璃卡片 + 蓝青渐变强调色 + 风险等级五色映射（低/关注/中/高/极高）+ 悬浮光效 + 渐入动画；打印模式自动转白底黑字。</p>
+<hr />
+<h2>四、运行与部署</h2>
+<pre><code class="language-powershell"># 一键启动（双击）
+start.bat   # 自动检查依赖 → 拉起前后端 → 打开浏览器
+stop.bat
+
+# 手动
+cd backend &amp;&amp; python run.py      # :8000
+cd frontend &amp;&amp; npm run dev       # :5173
+</code></pre>
+<ul>
+<li>依赖版本已锁定（<code>requirements.txt</code> 精确 pin）</li>
+<li>LLM 可选：<code>.env</code> 配置任意 OpenAI 兼容 API；不配则规则引擎全功能运行（完全离线）</li>
+<li>知识库启动时自动构建（文档变化自动重建向量）</li>
+</ul>
+<hr />
+<h2>五、Git 版本历史</h2>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>初始提交</td>
+<td>系统骨架（Agent + RAG + 模型 + 四页面）</td>
+</tr>
+<tr>
+<td>v1.1.0</td>
+<td>真实数据版（北京2023 A 矩阵 + 61篇文献知识库）</td>
+</tr>
+<tr>
+<td>v1.2.0</td>
+<td>体验升级（SSE流式 + SQLite持久化 + 节点画像）</td>
+</tr>
+<tr>
+<td>v1.2.1</td>
+<td>演示保底（一键启动 + README + 依赖锁定）</td>
+</tr>
+<tr>
+<td>后续迭代</td>
+<td>案例量化升级 / 三阶段框架 / 删除功能 / Ghosh双模型 / 解析容错 / 双模式字段一致化</td>
+</tr>
+</tbody>
+</table>
+<p>仓库：https://github.com/skifffes/Real-Estate-Analysis-Model</p></body></html>
