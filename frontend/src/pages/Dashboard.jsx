@@ -85,7 +85,7 @@ export default function Dashboard() {
                 data.impact_model.startsWith('Ghosh')
                   ? 'bg-amber-950/60 text-amber-300 border border-amber-800/60'
                   : 'bg-blue-950/60 text-blue-300 border border-blue-800/60'}`}>
-                {data.impact_model.startsWith('Ghosh') ? '供给侧冲击（成本推动）' : '需求侧冲击（最终需求）'}
+                {data.impact_model.startsWith('Ghosh') ? '供给侧冲击（供给约束）' : '需求侧冲击（最终需求）'}
               </span>
             )}
           </div>

@@ -114,10 +114,10 @@ def _stage_forecast(rows: list, shock_pct: float, direction: str, kind: str = "d
 def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str = "下降") -> dict:
     """Ghosh 供给侧冲击模型（标准口径）：ΔX = ΔV · (I-B)^(-1)
 
-    B 为供给分配系数矩阵（按行归一化，分母为卖方部门总产出）：
+    B 为供给分配系数矩阵，按卖方部门总产出进行系数化：
         B = D⁻¹Z，其中 D = diag(X)，即 B_ij = Z_ij / X_i
-    与直接消耗矩阵的关系：B = D⁻¹AD（相似矩阵，谱半径相同 ρ(B)=ρ(A)<1），
-    因此 (I-B) 可正常求逆。
+    （B 的行和不要求等于 1；与直接消耗矩阵的关系：B = D⁻¹AD，相似矩阵
+    谱半径相同 ρ(B)=ρ(A)<1，因此 (I-B) 可正常求逆。）
 
     口径提示：地区投入产出表的中间使用含跨地区调入/进口
     （行平衡：中间使用 + 最终使用 - 进口 = 总产出），

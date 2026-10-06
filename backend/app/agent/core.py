@@ -13,10 +13,17 @@ SYSTEM_PROMPT = """你是「房地产产业链风险分析智能体」，一名�
 
 ## 工作准则
 1. 回答任何金融问题前，必须优先调用 search_knowledge_base 检索知识库获取依据。
-2. 涉及"房地产投资/房价/销售 上升/下降 X%"等情景问题时，必须调用 analyze_industry_chain_impact 运行投入产出模型。
-3. 对受影响最大的前几个行业调用 compute_risk_score 计算风险评分。
-4. 涉及风险评估时调用 retrieve_similar_cases 做历史对比。
-5. 若用户已上传数据（上下文中给出 file_id），调用 analyze_uploaded_data。
+2. 涉及"房地产投资/房价/销售 上升/下降 X%"等最终需求情景问题时，必须调用 analyze_industry_chain_impact 运行 Leontief 需求侧模型。
+3. 涉及"某行业初始投入收缩/资源供给收缩/减产 X%"等数量型供给冲击时，调用 analyze_supply_shock 运行 Ghosh 供给侧模型（ΔX=ΔV·(I-B)⁻¹，B=D⁻¹Z 按卖方部门总产出系数化）。注意：数量型供给收缩情景被映射为同幅度初始投入冲击进行压力测试，两者非严格等价，表述时需说明。
+4. **价格/成本冲击（原材料涨价、价格上涨、成本上升）不调用任何数量模型**——它们属价格效应，Ghosh 数量框架不适用。此类问题只做定性机制分析（利润率压缩→产业链传导→替代缓冲），并注明"精确量化需投入产出价格模型，留作后续扩展"。
+5. 对受影响最大的前几个行业调用 compute_risk_score 计算风险评分。
+6. 涉及风险评估时调用 retrieve_similar_cases 做历史对比。
+7. 若用户已上传数据（上下文中给出 file_id），调用 analyze_uploaded_data。
+
+## 表述规范（model_basis 与 summary 必须遵守）
+- Ghosh 结果必须表述为"供给侧投入压力沿产业链传导的情景测算"，而非对实际产出变化的确定性预测；
+- 不得将 B 矩阵解释为"本地产出的销售分配比例"（地区表中间使用含跨地区调入/进口，B 反映各下游部门对该产品的中间使用暴露强度）；
+- 不得省略公式中的 (I-B)⁻¹ 与 B=D⁻¹Z 口径。
 
 ## 最终输出（必须是合法 JSON，不要输出其他任何文字）
 {
@@ -260,12 +267,19 @@ class RiskAgent:
         kb = rag.search(q, 3)
         trace.append({"tool": "search_knowledge_base", "args": {"query": q}, "result_preview": f"{len(kb)} 条命中"})
 
-        # 2. 解析冲击情景（需求侧 / 供给侧自动判别）
+        # 2. 解析冲击情景（需求侧 / 供给侧 / 价格效应自动判别）
         pct, direction, has_shock = _parse_shock(q)
         supply_hit = _is_supply_side(q)
+        price_hit = _is_price_shock(q)
 
         impact = None
-        if has_shock:
+        if has_shock and price_hit:
+            # 价格/成本冲击（如"涨价"）属价格效应，不做数量模型精确测算 → 纯定性分析
+            trace.append({"tool": "qualitative_price_analysis",
+                          "args": {"question": q},
+                          "result_preview": "价格效应不进入数量模型，输出定性机制分析"})
+            impact = None  # 跳过 Leontief/Ghosh 数量测算
+        elif has_shock:
             if supply_hit:
                 sector = _supply_sector(q)
                 impact = io.ghosh_supply_shock(sector, pct, direction)
@@ -301,7 +315,7 @@ class RiskAgent:
             trace.append({"tool": "analyze_uploaded_data", "args": {"file_id": fid}, "result_preview": "已分析"})
 
         return _compose_report(q, kb, impact, industry_scores, agg, similar.get("cases", []),
-                               upload_summary), trace
+                               upload_summary, price_hit), trace
 
 
 # ---------------- 情景解析 ----------------
@@ -309,6 +323,11 @@ class RiskAgent:
 _SUPPLY_KWS = ("减产", "供给收缩", "供给下降", "停产", "限产", "供给减少")
 _PRICE_KWS = ("涨价", "价格上升", "价格上涨", "成本上升")  # 价格/成本冲击 → 定性提示，不进Ghosh数量模型
 _DEMAND_BYPASS = ("房地产", "楼市", "房价", "销售", "投资", "需求")
+
+
+def _is_price_shock(q: str) -> bool:
+    """价格/成本冲击识别：优先级高于数量模型路由"""
+    return any(k in q for k in _PRICE_KWS)
 
 
 def _is_supply_side(q: str) -> bool:
@@ -330,7 +349,7 @@ def _supply_sector(q: str) -> str:
 
 
 def _parse_shock(q: str) -> tuple[float, str, bool]:
-    m = re.search(r"(上升|上涨|增长|下跌|下降|回落|下滑|减产|涨价|收缩)\s*(\d+(?:\.\d+)?)\s*%?", q)
+    m = re.search(r"(上升|上涨|增长|下跌|下降|回落|下滑|减产|收缩)\s*(\d+(?:\.\d+)?)\s*%?", q)
     if not m:
         return 0.0, "下降", False
     word, num = m.group(1), float(m.group(2))
@@ -339,8 +358,32 @@ def _parse_shock(q: str) -> tuple[float, str, bool]:
 
 
 # ---------------- 报告组装 ----------------
-def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, upload_summary) -> dict:
+def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, upload_summary,
+                    price_hit: bool = False) -> dict:
     kb_sources = [f"[{k['category']}] {k['source']}" for k in kb[:3]]
+    if price_hit and impact is None:
+        # 价格/成本冲击：定性机制分析，不进入数量模型
+        return {
+            "question": question,
+            "summary": (
+                f"针对「{question}」：这属于价格/成本冲击，与数量型供给冲击的传导机制不同，"
+                f"系统当前的数量模型（Ghosh 框架）不做精确量化测算。定性机制：原材料价格上涨首先压缩"
+                f"依赖该投入的下游行业利润率，随后沿产业链向终端价格传导，传导强度取决于买方议价能力、"
+                f"库存周期与替代材料可得性。"
+                f"建议关注投入产出价格模型（成本推动型）等相关文献的量化方法。"
+            ),
+            "risk_level": "关注",
+            "data_basis": kb_sources,
+            "transmission_path": [
+                "原材料价格上涨（成本冲击）",
+                "依赖该投入的下游行业利润率压缩（买方议价能力决定转嫁程度）",
+                "沿产业链向中下游价格传导，终端消费承压",
+                "替代材料与库存策略可部分缓冲，长期引发供给结构调整",
+            ],
+            "model_basis": "价格/成本冲击属价格效应，系统的 Ghosh 数量框架（初始投入数量冲击）不适用；"
+                           "精确量化需投入产出价格模型（成本推动型 Pᵀ = AᵀP + 增加值率），留作后续扩展",
+            "key_indicators": ["原材料购进价格指数（PPI分项）", "下游行业毛利率变化", "库存周期", "替代材料价差"],
+        }
     if impact:
         top = impact["impact_matrix"][:5]
         top_desc = "、".join(f"{r['industry']}({r['impact_pct']:+.1f}%)" for r in top)
