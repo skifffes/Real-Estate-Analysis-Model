@@ -20,18 +20,34 @@ def _has_supply(q: str) -> bool:
     return any(k in q for k in ("减产", "供给收缩", "供给下降", "停产", "限产", "供给减少"))
 
 
+import re
+
+
+def has_explicit_shock(question: str) -> bool:
+    """是否存在明确的数量冲击幅度（如'下降15%'、'减产10%'）。
+    模型运行的前提条件：没有明确幅度的问题不进入数量模型（防 LLM 脑补默认值）。"""
+    return bool(re.search(
+        r"(上升|上涨|增长|下跌|下降|回落|下滑|减产|收缩|供给收缩|供给下降)\s*\d+(\.\d+)?\s*%?",
+        question))
+
+
 def expected_model(question: str) -> str:
-    """按问题语义判定应使用的模型：'leontief' / 'ghosh' / 'qualitative'"""
+    """按问题语义判定应使用的模型：'leontief' / 'ghosh' / 'qualitative' / 'none'
+    'qualitative' = 价格/成本冲击或房价（资产价格）变化 → 定性机制分析；
+    'none' = 无明确量化冲击幅度（纯知识/定性问题）→ 数量模型全部禁止。
+    注意：价格/房价判断优先于幅度检查（带幅度的价格冲击仍属定性范畴）。"""
     if not question:
-        return "qualitative"
+        return "none"
     if _has_house_price(question) and not any(
             k in question for k in ("投资", "新开工", "销售面积", "施工")):
         return "qualitative"           # 房价 = 资产价格变化 → 定性
     if _has_price(question):
-        return "qualitative"           # 价格/成本冲击 → 定性
+        return "qualitative"           # 价格/成本冲击 → 定性（即使带幅度）
+    if not has_explicit_shock(question):
+        return "none"                  # 无明确冲击幅度 → 数量模型全部禁止
     if _has_supply(question):
         return "ghosh"                 # 数量型供给冲击
-    return "leontief"                  # 默认：数量型需求冲击
+    return "leontief"                  # 数量型需求冲击
 
 
 def quantity_model_allowed(question: str) -> tuple[bool, str]:
@@ -43,8 +59,13 @@ def quantity_model_allowed(question: str) -> tuple[bool, str]:
 
 
 def check_tool_allowed(tool: str, question: str) -> tuple[bool, str]:
-    """完整路由守卫：校验 LLM 选择的模型是否与问题语义匹配。返回 (allowed, reason)。"""
+    """完整路由守卫：校验模型调用是否满足适用条件。返回 (allowed, reason)。
+    四层检查：明确冲击幅度 → 问题类型 → 模型匹配。"""
     em = expected_model(question)
+    if em == "none":
+        if tool in ("analyze_industry_chain_impact", "analyze_supply_shock"):
+            return False, "问题未提供明确的量化冲击幅度（如'下降15%'），数量模型不适用；纯知识/定性问题不应触发数量测算"
+        return True, ""
     if em == "qualitative":
         if tool in ("analyze_industry_chain_impact", "analyze_supply_shock"):
             return False, _qualitative_reason(question)
@@ -59,4 +80,6 @@ def check_tool_allowed(tool: str, question: str) -> tuple[bool, str]:
 def _qualitative_reason(question: str) -> str:
     if _has_house_price(question):
         return "房价变化属资产价格变化，不直接等价于最终需求数量冲击，数量模型不适用"
+    if not has_explicit_shock(question):
+        return "问题未提供明确的量化冲击幅度，数量模型不适用"
     return "价格/成本冲击属价格效应，Ghosh/Leontief 数量框架不适用，仅作定性机制分析"

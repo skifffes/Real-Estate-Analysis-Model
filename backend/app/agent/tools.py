@@ -72,7 +72,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "retrieve_similar_cases",
-            "description": "检索历史房地产风险案例（日本1990/美国2008/恒大2021/海南1992），用于历史对比与经验参照。",
+            "description": "检索 9 个结构化历史房地产风险案例（国际/地区 3 + 房企 6），用于历史对比与经验参照。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -124,14 +124,19 @@ def execute_tool(name: str, arguments: dict, ctx: dict | None = None,
     if name == "search_knowledge_base":
         return {"results": rag.search(arguments.get("query", ""), arguments.get("top_k", 4))}
     if name == "analyze_industry_chain_impact":
-        return io.analyze_shock(
-            float(arguments.get("shock_percent", 10)),
-            arguments.get("direction", "下降"),
-        )
+        sp = arguments.get("shock_percent")
+        if sp is None:
+            return {"error": "未提供明确的量化冲击幅度（shock_percent），本次不执行数量模型",
+                    "blocked": True}
+        return io.analyze_shock(float(sp), arguments.get("direction", "下降"))
     if name == "analyze_supply_shock":
+        sp = arguments.get("shock_percent")
+        if sp is None:
+            return {"error": "未提供明确的量化冲击幅度（shock_percent），本次不执行数量模型",
+                    "blocked": True}
         return io.ghosh_supply_shock(
             arguments.get("sector", "钢铁"),
-            float(arguments.get("shock_percent", 10)),
+            float(sp),
             arguments.get("direction", "下降"),
         )
     if name == "compute_risk_score":
