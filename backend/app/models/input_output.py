@@ -108,6 +108,38 @@ def _stage_forecast(rows: list, shock_pct: float, direction: str) -> dict:
             "cross_case_rules": fw["cross_case_rules"], "stages": stages}
 
 
+def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str = "下降") -> dict:
+    """Ghosh 供给侧冲击模型：ΔX = ΔV · (I-A)^(-1)
+    分析某部门初始投入（增加值/供给）变动对全行业产出的影响。
+    场景：钢铁减产/涨价、能源供给收缩等成本推动型冲击。"""
+    if shock_sector not in SECTOR_NAMES:
+        return {"error": f"未知部门: {shock_sector}"}
+    j = SECTOR_NAMES.index(shock_sector)
+    sign = -1.0 if direction in ("下降", "下跌", "减产", "回落") else 1.0
+    # 部门增加值 ≈ 总产出 - 中间投入合计
+    VA = X_BASE - (A * X_BASE[None, :]).sum(axis=0)   # 各部门增加值
+    dV = np.zeros(N)
+    dV[j] = sign * (shock_percent / 100.0) * VA[j]
+    L = leontief_inverse(A)
+    dX = dV @ L  # Ghosh：行向量左乘
+
+    rows = []
+    for i, name in enumerate(SECTOR_NAMES):
+        impact_pct = float(dX[i] / X_BASE[i] * 100.0)
+        if abs(impact_pct) < 0.05:
+            continue
+        rows.append({"industry": name, "impact_pct": round(impact_pct, 2),
+                     "delta_output_yi": round(float(dX[i]), 1)})
+    rows.sort(key=lambda r: abs(r["impact_pct"]), reverse=True)
+    return {
+        "model": "Ghosh Supply-Side Model, ΔX = ΔV·(I-A)^(-1)",
+        "scenario": f"{shock_sector}供给侧（增加值）{direction} {shock_percent}%",
+        "impact_matrix": rows,
+        "total_output_change_yi": round(float(dX.sum()), 1),
+        "note": "供给侧冲击通过中间投入成本渠道传导（区别于Leontief需求侧）",
+    }
+
+
 def supply_chain_graph(impact: dict | None = None) -> dict:
     """生成产业链关系图（供前端 ECharts graph）"""
     nodes, links = [], []

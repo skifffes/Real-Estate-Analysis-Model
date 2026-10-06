@@ -131,6 +131,8 @@ class RiskAgent:
                 result = execute_tool(tc.function.name, args, ctx)
                 if tc.function.name == "analyze_industry_chain_impact":
                     last_impact = result
+                elif tc.function.name == "analyze_supply_shock":
+                    last_impact = result  # Ghosh 结果同样计入 impact（报告/矩阵共用）
                 elif tc.function.name == "retrieve_similar_cases":
                     last_cases = result.get("cases", [])
                 yield {"type": "tool", "status": "done", "tool": tc.function.name, "args": args,
@@ -255,7 +257,7 @@ class RiskAgent:
 
 # ---------------- 情景解析 ----------------
 def _parse_shock(q: str) -> tuple[float, str, bool]:
-    m = re.search(r"(上升|上涨|增长|下跌|下降|回落|下滑)\s*(\d+(?:\.\d+)?)\s*%?", q)
+    m = re.search(r"(上升|上涨|增长|下跌|下降|回落|下滑|减产|涨价|收缩)\s*(\d+(?:\.\d+)?)\s*%?", q)
     if not m:
         return 0.0, "下降", False
     word, num = m.group(1), float(m.group(2))

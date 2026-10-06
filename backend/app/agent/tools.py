@@ -23,7 +23,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "analyze_industry_chain_impact",
-            "description": "基于列昂惕夫投入产出模型 X=(I-A)^(-1)Y，测算房地产冲击对各行业产出的影响矩阵（直接效应+间接效应）。",
+            "description": "基于列昂惕夫投入产出模型 X=(I-A)^(-1)Y，测算房地产需求侧冲击对各行业产出的影响矩阵（直接效应+间接效应）。适用于'投资/销售/需求 上升下降'类问题。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -31,6 +31,22 @@ TOOL_SCHEMAS = [
                     "direction": {"type": "string", "enum": ["下降", "上升"], "description": "冲击方向"},
                 },
                 "required": ["shock_percent"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_supply_shock",
+            "description": "基于Ghosh供给侧模型 ΔX=ΔV·(I-A)^(-1)，测算某行业供给收缩/成本上升（如钢铁减产、水泥涨价）对全行业产出的影响。适用于'减产/涨价/供给收缩/成本上升'类问题。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sector": {"type": "string", "description": "冲击行业，如'钢铁'、'建材'、'电力热力'"},
+                    "shock_percent": {"type": "number", "description": "供给变动幅度百分比，正数"},
+                    "direction": {"type": "string", "enum": ["下降", "上升"], "description": "供给变动方向"},
+                },
+                "required": ["sector", "shock_percent"],
             },
         },
     },
@@ -99,6 +115,12 @@ def execute_tool(name: str, arguments: dict, ctx: dict | None = None) -> dict:
         return {"results": rag.search(arguments.get("query", ""), arguments.get("top_k", 4))}
     if name == "analyze_industry_chain_impact":
         return io.analyze_shock(
+            float(arguments.get("shock_percent", 10)),
+            arguments.get("direction", "下降"),
+        )
+    if name == "analyze_supply_shock":
+        return io.ghosh_supply_shock(
+            arguments.get("sector", "钢铁"),
             float(arguments.get("shock_percent", 10)),
             arguments.get("direction", "下降"),
         )
