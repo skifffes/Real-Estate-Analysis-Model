@@ -282,7 +282,15 @@ function ReportView({ report }) {
 
       {impactChart && (
         <div>
-          <div className="section-label mb-2">行业影响（产出变动%，投入产出模型测算）</div>
+          <div className="section-label mb-2 flex items-center gap-2">
+            行业影响（产出变动%，{impact?.model?.startsWith('Ghosh') ? 'Ghosh 供给侧模型' : 'Leontief 需求侧模型'}测算）
+            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+              impact?.model?.startsWith('Ghosh')
+                ? 'bg-amber-950/60 text-amber-300 border border-amber-800/60'
+                : 'bg-blue-950/60 text-blue-300 border border-blue-800/60'}`}>
+              {impact?.model?.startsWith('Ghosh') ? '供给侧冲击（成本推动）' : '需求侧冲击（最终需求）'}
+            </span>
+          </div>
           <Chart option={impactChart} height={260} />
         </div>
       )}

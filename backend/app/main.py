@@ -49,6 +49,7 @@ def _refresh_dashboard(report: dict):
     d["industry_scores"] = report.get("industry_scores", [])
     d["key_indicators"] = report.get("key_indicators", [])
     impact = report.get("impact")
+    d["impact_model"] = (impact or {}).get("model", "")  # Leontief / Ghosh 模型类型
     d["supply_chain"] = io.supply_chain_graph(impact)
     d["transmission_stages"] = (impact or {}).get("transmission_stages", {})
     d["similar_cases"] = report.get("similar_cases", [])

@@ -219,15 +219,23 @@ class RiskAgent:
         kb = rag.search(q, 3)
         trace.append({"tool": "search_knowledge_base", "args": {"query": q}, "result_preview": f"{len(kb)} 条命中"})
 
-        # 2. 解析冲击情景
+        # 2. 解析冲击情景（需求侧 / 供给侧自动判别）
         pct, direction, has_shock = _parse_shock(q)
+        supply_hit = _is_supply_side(q)
 
         impact = None
         if has_shock:
-            impact = io.analyze_shock(pct, direction)
-            trace.append({"tool": "analyze_industry_chain_impact",
-                          "args": {"shock_percent": pct, "direction": direction},
-                          "result_preview": f"总产出变动 {impact['total_output_change_yi']} 亿元"})
+            if supply_hit:
+                sector = _supply_sector(q)
+                impact = io.ghosh_supply_shock(sector, pct, direction)
+                trace.append({"tool": "analyze_supply_shock",
+                              "args": {"sector": sector, "shock_percent": pct, "direction": direction},
+                              "result_preview": f"Ghosh供给侧：总产出变动 {impact.get('total_output_change_yi')} 亿元"})
+            else:
+                impact = io.analyze_shock(pct, direction)
+                trace.append({"tool": "analyze_industry_chain_impact",
+                              "args": {"shock_percent": pct, "direction": direction},
+                              "result_preview": f"Leontief需求侧：总产出变动 {impact['total_output_change_yi']} 亿元"})
 
         # 3. 行业风险评分（受影响前5行业）
         industry_scores = []
@@ -256,6 +264,25 @@ class RiskAgent:
 
 
 # ---------------- 情景解析 ----------------
+_SUPPLY_KWS = ("减产", "涨价", "供给收缩", "供给下降", "停产", "限产", "成本上升", "原材料")
+_DEMAND_BYPASS = ("房地产", "楼市", "房价", "销售", "投资", "需求")
+
+
+def _is_supply_side(q: str) -> bool:
+    """判别供给侧冲击：含减产/涨价等词，且冲击主体非房地产类需求侧词"""
+    if not any(k in q for k in _SUPPLY_KWS):
+        return False
+    return not any(k in q for k in _DEMAND_BYPASS)
+
+
+def _supply_sector(q: str) -> str:
+    """提取供给侧冲击行业（默认钢铁）"""
+    for s in io.SECTOR_NAMES:
+        if s in q:
+            return s
+    return "钢铁"
+
+
 def _parse_shock(q: str) -> tuple[float, str, bool]:
     m = re.search(r"(上升|上涨|增长|下跌|下降|回落|下滑|减产|涨价|收缩)\s*(\d+(?:\.\d+)?)\s*%?", q)
     if not m:
@@ -271,35 +298,55 @@ def _compose_report(question, kb, impact, industry_scores, agg, similar_cases, u
     if impact:
         top = impact["impact_matrix"][:5]
         top_desc = "、".join(f"{r['industry']}({r['impact_pct']:+.1f}%)" for r in top)
-        summary = (
-            f"针对「{question}」：基于14部门投入产出模型测算，情景「{impact['scenario']}」"
-            f"将导致国民经济总产出变动约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
-            f"（占总产出 {abs(impact['total_output_change_pct'])}%）。"
-            f"受影响最大的行业依次为：{top_desc}。"
-            f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"
-            f"传导路径为：房地产投资收缩 → 上游原材料需求下降 → 中游建造活动放缓 → 下游耐用品消费承压，"
-            f"并通过金融渠道放大。"
-        )
-        model_basis = (f"列昂惕夫投入产出模型 X=(I-A)^(-1)Y：房地产乘数 {impact['real_estate_multiplier']}、"
-                       f"建筑业乘数 {impact['construction_multiplier']}；冲击情景：{impact['scenario']}")
-        transmission = [
-            f"房地产最终需求{impact['scenario'].split('最终需求')[-1]}，直接冲击房地产与建筑业",
-            "上游需求收缩：钢铁、建材、化工订单下降（生产成本渠道）",
-            "中游放缓：机械设备、专业服务、建筑装饰活动减少",
-            "下游承压：家电、家具等后周期消费需求下滑（收入-消费渠道）",
-            "金融传导：房企信用风险暴露，银行敞口与抵押品价值承压（金融加速器渠道）",
-        ]
+        is_ghosh = str(impact.get("model", "")).startswith("Ghosh")
+        if is_ghosh:
+            summary = (
+                f"针对「{question}」：基于Ghosh供给侧模型测算，情景「{impact['scenario']}」"
+                f"将通过中间投入成本渠道导致全行业总产出变动约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
+                f"（占总产出 {abs(impact['total_output_change_pct'])}%）。"
+                f"受影响最大的行业依次为：{top_desc}。"
+                f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"
+                f"供给侧冲击沿'上游供给收缩 → 中间投入成本上升 → 下游生产受阻'传导，"
+                f"与需求侧冲击（Leontief）形成互补：本情景属于成本推动型。"
+            )
+            model_basis = (f"Ghosh供给侧模型 ΔX=ΔV·(I-A)^(-1)：以{impact['scenario']}模拟初始投入变动，"
+                           f"通过分配系数矩阵向下游扩散（与Leontief需求侧模型互补）")
+            transmission = [
+                f"「{impact['scenario'].split('供给侧')[0]}」供给收缩，初始投入（增加值）直接减少",
+                "中间投入供给缺口出现：依赖该行业作为原材料的部门生产受阻",
+                "下游生产成本上升：制造与建造类行业首当其冲",
+                "若持续：成本推动型通胀压力沿产业链向终端消费传导",
+            ]
+        else:
+            summary = (
+                f"针对「{question}」：基于14部门投入产出模型测算，情景「{impact['scenario']}」"
+                f"将导致国民经济总产出变动约 {abs(impact['total_output_change_yi']):,.0f} 亿元"
+                f"（占总产出 {abs(impact['total_output_change_pct'])}%）。"
+                f"受影响最大的行业依次为：{top_desc}。"
+                f"综合风险评分 {agg['risk_score']}（{agg['risk_level']}）。"
+                f"传导路径为：房地产投资收缩 → 上游原材料需求下降 → 中游建造活动放缓 → 下游耐用品消费承压，"
+                f"并通过金融渠道放大。"
+            )
+            model_basis = (f"列昂惕夫投入产出模型 X=(I-A)^(-1)Y：房地产乘数 {impact['real_estate_multiplier']}、"
+                           f"建筑业乘数 {impact['construction_multiplier']}；冲击情景：{impact['scenario']}")
+            transmission = [
+                f"房地产最终需求{impact['scenario'].split('最终需求')[-1]}，直接冲击房地产与建筑业",
+                "上游需求收缩：钢铁、建材、化工订单下降（生产成本渠道）",
+                "中游放缓：机械设备、专业服务、建筑装饰活动减少",
+                "下游承压：家电、家具等后周期消费需求下滑（收入-消费渠道）",
+                "金融传导：房企信用风险暴露，银行敞口与抵押品价值承压（金融加速器渠道）",
+            ]
         # 传导三阶段预判（六案例归纳框架，素材文档第四章）
         stages = impact.get("transmission_stages", {})
-        if stages:
+        if stages and not is_ghosh:
             st_desc = " → ".join(
                 f"{s['name']}({s['window'].split(' ')[-2]}{s['window'].split(' ')[-1]}，压力{s['pressure']})"
                 for s in stages.get("stages", []))
             transmission.insert(0, f"【三阶段传导预判】{st_desc}")
         affected = [
             {"industry": r["industry"], "impact_pct": r["impact_pct"],
-             "delta_output_yi": r["delta_output_yi"],
-             "direct_effect_yi": r["direct_effect_yi"], "indirect_effect_yi": r["indirect_effect_yi"],
+             "delta_output_yi": r.get("delta_output_yi"),
+             "direct_effect_yi": r.get("direct_effect_yi"), "indirect_effect_yi": r.get("indirect_effect_yi"),
              **{"risk_score": next((s["risk_score"] for s in industry_scores if s["industry"] == r["industry"]),
                                     risk_model.industry_risk_from_impact(r["industry"], r["impact_pct"], r["debt_ratio"])["risk_score"])}}
             for r in top

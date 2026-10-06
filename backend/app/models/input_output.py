@@ -129,13 +129,18 @@ def ghosh_supply_shock(shock_sector: str, shock_percent: float, direction: str =
         if abs(impact_pct) < 0.05:
             continue
         rows.append({"industry": name, "impact_pct": round(impact_pct, 2),
-                     "delta_output_yi": round(float(dX[i]), 1)})
+                     "delta_output_yi": round(float(dX[i]), 1),
+                     "debt_ratio": DEBT.get(name, 55)})
     rows.sort(key=lambda r: abs(r["impact_pct"]), reverse=True)
     return {
         "model": "Ghosh Supply-Side Model, ΔX = ΔV·(I-A)^(-1)",
         "scenario": f"{shock_sector}供给侧（增加值）{direction} {shock_percent}%",
+        "sector_order": SECTOR_NAMES,
         "impact_matrix": rows,
         "total_output_change_yi": round(float(dX.sum()), 1),
+        "total_output_change_pct": round(float(dX.sum()) / float(X_BASE.sum()) * 100, 3),
+        "real_estate_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("房地产")), 2),
+        "construction_multiplier": round(impact_multiplier(A, SECTOR_NAMES.index("建筑业")), 2),
         "note": "供给侧冲击通过中间投入成本渠道传导（区别于Leontief需求侧）",
     }
 
