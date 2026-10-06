@@ -121,6 +121,18 @@ def execute_tool(name: str, arguments: dict, ctx: dict | None = None,
         if not allowed:
             return {"blocked": True, "reason": reason,
                     "note": "已按模型适用边界拦截本次数量模型调用，请改用定性分析或正确模型"}
+        # ---- Canonical Scenario：数量模型参数由服务端从用户原话解析，
+        #      不采信 LLM 提交的 shock_percent/direction/sector（防参数篡改与脑补） ----
+        from .core import _parse_shock, _supply_sector
+        pct, direction, has = _parse_shock(question)
+        if not has:
+            return {"error": "用户问题未提供明确的量化冲击幅度（shock_percent），本次不执行数量模型",
+                    "blocked": True}
+        if name == "analyze_supply_shock":
+            arguments = {"sector": _supply_sector(question),
+                         "shock_percent": pct, "direction": direction}
+        else:
+            arguments = {"shock_percent": pct, "direction": direction}
     if name == "search_knowledge_base":
         return {"results": rag.search(arguments.get("query", ""), arguments.get("top_k", 4))}
     if name == "analyze_industry_chain_impact":

@@ -161,7 +161,8 @@ class RiskAgent:
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments or "{}")
                 yield {"type": "tool", "status": "start", "tool": tc.function.name, "args": args}
-                result = execute_tool(tc.function.name, args, ctx, question=question)  # 服务端路由校验
+                # Canonical Scenario 校验与参数规范化已下沉至 execute_tool（单一守卫入口）
+                result = execute_tool(tc.function.name, args, ctx, question=question)
                 # blocked（守卫拦截）/error 结果不进入 last_impact（防止空壳 dict 污染报告）
                 valid_model_result = (
                     not result.get("blocked") and not result.get("error")
