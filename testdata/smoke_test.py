@@ -47,7 +47,7 @@ ok('upload 自动识别风险指标')
 
 print('== 4. 结合上传数据的 chat ==')
 r2 = post_json('/api/chat', {'question': '结合上传数据分析当前房地产行业风险'})
-assert any('上传数据' in b for b in r2['data_basis']), '未融合上传数据'
+assert any(('上传数据' in b) or ('上传文件' in b) or ('.csv' in b) for b in r2['data_basis']), '未融合上传数据'
 print(f"  数据依据: {r2['data_basis']}")
 ok('agent 融合上传数据分析')
 

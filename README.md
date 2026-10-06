@@ -1,10 +1,10 @@
 # 房地产产业链风险分析智能体
 ## Real Estate Supply Chain Risk Intelligence Agent
 
-> 金融人工智能竞赛 Demo 系统 · v1.2.1
+> 金融人工智能竞赛 Demo 系统 · v1.3.0
 > **大模型 Agent + 金融知识库 RAG + 列昂惕夫投入产出模型 + 风险评分** 的深度融合，而非普通聊天机器人。
 
-![version](https://img.shields.io/badge/version-1.2.1-blue) ![python](https://img.shields.io/badge/Python-3.10%2B-3776ab) ![react](https://img.shields.io/badge/React-18-61dafb) ![license](https://img.shields.io/badge/use-研究演示-green)
+![version](https://img.shields.io/badge/version-1.3.0-blue) ![python](https://img.shields.io/badge/Python-3.10%2B-3776ab) ![react](https://img.shields.io/badge/React-18-61dafb) ![license](https://img.shields.io/badge/use-研究演示-green)
 
 ---
 
@@ -82,10 +82,12 @@ LLM_MODEL=deepseek-chat
 |---|---|---|
 | **智能问答** | 输入冲击情景 → 结构化风险报告（摘要/风险等级/影响产业/传导路径/模型依据/数据依据/关注指标） | LLM 工具调用，**数字全部来自模型计算**，杜绝幻觉 |
 | **流式轨迹** | 实时显示 Agent 每一步工具调用（"→ 执行中" → "✓ 完成+结果"） | SSE + 生成器 |
-| **风险仪表盘** | 风险评分仪表盘 / 行业影响图 / **产业链传导图谱**（力导向+节点画像）/ 历史对比 / 传导验证（真实月度数据） | ECharts |
+| **双模型引擎** | 需求侧 Leontief `X=(I-A)⁻¹Y` + 供给侧 Ghosh `ΔX=ΔV·(I-A)⁻¹`，Agent 按问题语义自动路由（"房地产投资下降" vs "钢铁减产"） | 双投入产出模型 |
+| **传导三阶段** | 冲击分析自动输出阶段化预判：需求侧六案例框架 / 供给侧成本推动框架，压力指数 0-100 | 自建分析框架 |
+| **风险仪表盘** | 评分仪表盘 / 行业影响（双模型徽章）/ **产业链图谱**（力导向+节点画像）/ 历史对比 / 传导验证（真实月度）/ 三阶段卡 / 案例对标 | ECharts |
 | **节点画像** | 点击图谱节点：A 矩阵消耗结构、乘数、负债率（含口径）、最新月度数据 | 交互式探索 |
 | **数据上传** | CSV/Excel 拖拽上传 → 自动统计画像 + 风险指标识别 + 实时评分；历史可回看/下载原文 | pandas |
-| **报告中心** | 六章结构 Markdown 持久化 → 下载 .md / 导出 PDF（正确分页） | 模板化生成 |
+| **报告中心** | 六章结构 Markdown 持久化 → 下载 .md / 导出 PDF（正确分页）；单删/全删 | 模板化生成 |
 | **持久化** | 报告/上传记录 SQLite 落库，**重启零丢失** | sqlite3 WAL |
 
 ## 演示流程（比赛脚本，约 5 分钟）
