@@ -249,6 +249,18 @@ class RiskAgent:
                  "peak_impact": c.get("peak_impact"), "lessons": c.get("lessons")}
                 for c in cases
             ])
+        # ---- 无有效模型结果（守卫拦截/未执行）时的数字清洗 ----
+        # LLM 可能自行编造影响表与评分（如“光伏组件-12%”“综合55分”），
+        # 既然数量模型未运行，这些数字一律删除：宁可不给数字，也不乱算。
+        if not impact:
+            report.pop("affected_industries", None)
+            report.pop("industry_scores", None)
+            report.pop("risk_score", None)
+            report.pop("risk_level", None)
+            note = ("｜模型状态：本次未运行数量模型（行业/口径未通过模型适用性校验），"
+                    "不输出产业影响比例与风险评分；以下为基于知识库与产业机制的定性分析。")
+            if "模型状态" not in str(report.get("summary", "")):
+                report["summary"] = str(report.get("summary", "")) + note
         return report
 
     @staticmethod
@@ -295,6 +307,7 @@ class RiskAgent:
         supply_hit = _is_supply_side(q)
         price_hit = _is_price_shock(q)
         house_price_hit = _is_house_price_shock(q)
+        supply_sector_unresolved = False  # 供给冲击行业无法映射到13部门时置 True
 
         impact = None
         if house_price_hit and not any(k in q for k in ("投资", "新开工", "销售面积", "施工")):

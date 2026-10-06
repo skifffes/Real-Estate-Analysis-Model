@@ -168,7 +168,13 @@ def execute_tool(name: str, arguments: dict, ctx: dict | None = None,
             market_change=float(arguments.get("market_change", 0)),
         ) | {"industry": arguments.get("industry", "")}
     if name == "retrieve_similar_cases":
-        return {"cases": kb_cases.retrieve_similar_cases(arguments.get("event", ""), arguments.get("top_k", 2))}
+        res = kb_cases.retrieve_similar_cases(arguments.get("event", ""), arguments.get("top_k", 2))
+        # 二次校验：案例必须与用户原始问题相关（防 LLM 改写 event 塞入无关案例）
+        res = kb_cases.filter_by_question(res, question)
+        if not res:
+            return {"cases": [],
+                    "note": "当前案例库未检索到与该问题高度相关的案例，不作历史案例强行类比"}
+        return {"cases": res}
     if name == "analyze_uploaded_data":
         fid = arguments.get("file_id", "")
         summary = ctx.get("uploads", {}).get(fid)
