@@ -171,7 +171,8 @@ class RiskAgent:
                     for k in ("impact_pct", "delta_output_yi", "direct_effect_yi",
                               "indirect_effect_yi", "debt_ratio"):
                         if k not in row or not isinstance(row.get(k), (int, float)):
-                            row[k] = m[k]
+                            if k in m:  # Ghosh 矩阵无直接/间接效应分解，跳过缺失字段
+                                row[k] = m[k]
         if cases:
             report.setdefault("similar_cases", [
                 {"title": c["title"], "year": c.get("year"),
