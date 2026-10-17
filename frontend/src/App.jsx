@@ -15,6 +15,10 @@ const NAV = [
     icon: <path d="M8 10h8M8 14h5M21 12a9 9 0 1 1-4.4-7.7L21 3l-1 3.6A8.96 8.96 0 0 1 21 12Z" />,
   },
   {
+    to: '/dashboard', label: '风险仪表盘', desc: 'Agent 分析 / 风险概览',
+    icon: <path d="M4 19V5m0 14h16M8 15v-4M12 15V7M16 15v-6M20 15v-3" />,
+  },
+  {
     to: '/knowledge', label: '传导知识库', desc: '理论 / 文献 / 案例',
     icon: <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13Zm0 0V6.5M8 8h8M8 12h6" />,
   },

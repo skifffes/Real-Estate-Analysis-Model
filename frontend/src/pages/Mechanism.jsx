@@ -20,8 +20,8 @@ export default function Mechanism() {
       {error && <div role="alert" className="text-red-300 text-sm">{error}</div>}
       {!data && !error && <p className="text-slate-500 text-sm">正在读取机制库…</p>}
       {data && <div className="grid grid-cols-1 xl:grid-cols-[220px_1fr] gap-6">
-        <nav className="xl:sticky xl:top-6 self-start border-l border-slate-800 pl-3 space-y-1">
-          {data.mechanisms.map(item => <a key={item.id} href={`#${item.id}`} className="block px-2 py-2 text-xs text-slate-400 hover:text-blue-300">{item.title}<span className="block text-slate-600 mt-0.5">{item.window}</span></a>)}
+        <nav aria-label="传导机制目录" className="xl:sticky xl:top-6 self-start border-l border-slate-800 pl-3 space-y-1">
+          {data.mechanisms.map(item => <button key={item.id} type="button" onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="block w-full px-2 py-2 text-left text-xs text-slate-400 hover:text-blue-300">{item.title}<span className="block text-slate-600 mt-0.5">{item.window}</span></button>)}
         </nav>
         <div className="space-y-5">
           {data.mechanisms.map(item => <section id={item.id} key={item.id} className="card !rounded-lg scroll-mt-6">
